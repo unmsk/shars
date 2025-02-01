@@ -12,3 +12,4 @@ spinoff = { version = "0.8.0", features = ["line"] }
 walkdir = "2.5.0"
 regex-lite = "0.1.6"
 encoding_rs = "0.8.35"
+clap = { version = "4.4", features = ["derive"] }
