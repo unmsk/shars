@@ -6,11 +6,13 @@ use sha2::{Sha256, Digest};
 use colored::*;
 use spinoff::{Spinner, spinners, Color, Streams};
 use std::path::{PathBuf};
-use walkdir::WalkDir;
 use std::path::Path;
 use regex_lite::Regex;
 use encoding_rs::UTF_16LE;
 use clap::{Parser, Subcommand};
+
+mod recursive_ops;
+use recursive_ops::{write_recursive, check_recursive};
 
 #[derive(Parser)]
 #[command(name = "hasher")]
@@ -179,7 +181,6 @@ fn main() {
                 _ => {}
             }
         }
-
         Commands::WR { directory } => {
             let dir = if directory == PathBuf::from(".") {
                 current_dir().unwrap()
@@ -187,47 +188,12 @@ fn main() {
                 directory
             };
 
-            if !dir.is_dir() {
-                eprintln!("{} the 'wr' command requires a directory", "Error:".truecolor(173, 127, 172));
-                return;
-            }
-
-            if let Some(dir_name_check) = dir.file_name() {
-            if let Some(dir_name) = dir_name_check.to_str() {
-                let checksums_file_name = format!("{}.sha256", dir_name);
-                let output_file = dir.join(&checksums_file_name);
-                let mut checksums_file = match File::create(output_file) {
-                    Ok(file) => file,
-                    Err(e) => {
-                        eprintln!("{} failed to create file '{}': {}", "Error:".truecolor(173, 127, 172), dir_name, e);
-                        return;
-                    }
-                };
-                let loading_message = format!("Computing checksums for directory '{}'", dir_name);
-                let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
-                for entry in WalkDir::new(dir.clone()).into_iter().filter_map(Result::ok) {
-                    let path = entry.path();
-                    if path.is_file() {
-                        if let Some(file_name) = path.file_name() {
-                            if *file_name.to_ascii_lowercase() == *checksums_file_name.to_ascii_lowercase() {
-                                continue;
-                            }
-                        }
-                        let result = compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
-                        let relative_path = strip_prefix(path, &dir);
-                        let text_to_write = format!("{} {}", result, relative_path.display());
-                        writeln!(checksums_file, "{}", text_to_write).unwrap();
-                    }
-                }
-                clear_spinner_and_flush(&mut spinner);
-                println!("{} file '{}' created and written to successfully", "Status:".truecolor(119, 193, 178), checksums_file_name.bold().white());
-                return;
-            }
-        } else {
-            eprintln!("{} directory has no file name", "Error:".truecolor(173, 127, 172));
-            return;
-        }
-        }
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(async {
+                    write_recursive(dir).await.unwrap();
+                });
+        },
 
         Commands::CR { directory } => {
             let dir = if directory == PathBuf::from(".") {
@@ -236,75 +202,12 @@ fn main() {
                 directory
             };
 
-            if !dir.is_dir() {
-                eprintln!("{} the 'cr' command requires a directory", "Error:".truecolor(173, 127, 172));
-                return;
-            }
-
-            if let Some(dir_name_check) = dir.file_name() {
-            if let Some(dir_name) = dir_name_check.to_str() {
-                let checksums_file_name = format!("{}.sha256", dir_name);
-                let checksums_path = dir.join(checksums_file_name.clone());
-                if !checksums_path.exists() {
-                    eprintln!("{} file '{}' is missing", "Error:".truecolor(173, 127, 172), checksums_file_name);
-                    return;
-                }
-                let mut count_good = 0;
-                let mut count_bad = 0;
-                let mut bad_files: Vec<String> = Vec::new();
-                if let Ok(sha256_content) = read_sha256_file(&checksums_path, dir_name) {
-                    let text: String = sha256_content.to_lowercase();
-                    let loading_message = format!("Verifying checksums for directory '{}'", dir_name);
-                    let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
-                    for entry in WalkDir::new(dir.clone()).into_iter().filter_map(Result::ok) {
-                        let path = entry.path();
-                        if path.is_file() {
-                            if let Some(file_name) = path.file_name() {
-                                if *file_name.to_ascii_lowercase() == *checksums_file_name.to_ascii_lowercase() {
-                                    continue;
-                                }
-                            }
-                            let file_hash = compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
-                            let relative_path = strip_prefix(path, &dir);
-                            match find_matching_sha256_for_filename(&text, &file_hash) {
-                                Some(_) => {
-                                    count_good += 1;
-                                }
-                                _ => {
-                                    count_bad += 1;
-                                    bad_files.push(relative_path.to_string_lossy().to_string());
-                                }
-                            }
-                        }
-                    }
-                    clear_spinner_and_flush(&mut spinner);
-                }
-                let total_count = count_good + count_bad;
-                if count_bad == 0 {
-                    println!("{} All checksums passed!", "Status:".truecolor(119, 193, 178));
-                    return;
-                }
-                if count_good == 0 {
-                    println!("{} All checksums failed!", "Status:".truecolor(173, 127, 172));
-                    return;
-                }
-                println!("Files with mismatched hashes:");
-                for file in bad_files {
-                    println!("{}", file);
-                }
-        
-                if count_good > count_bad {
-                    println!("{} {} out of {} checksums passed!", "Status:".truecolor(119, 193, 178), count_good, total_count);
-                } else {
-                    println!("{} {} out of {} checksums passed!", "Status:".truecolor(173, 127, 172), count_good, total_count);
-                }
-                return;
-            }
-        } else {
-            eprintln!("{} directory has no file name", "Error:".truecolor(173, 127, 172));
-            return;
-        }
-        }
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(async {
+                    check_recursive(dir).await.unwrap();
+                });
+        },
     }
 }
 
@@ -362,17 +265,14 @@ fn read_sha256_file(file_path: &PathBuf, filename: &str) -> io::Result<String> {
         Err(e) => {
             eprintln!(
                 "{} failed to open the file '{}'",
-                "Error:".truecolor(173, 127, 172), &filename.bold().white()
+                "Error:".truecolor(173, 127, 172),
+                &filename.bold().white()
             );
             return Err(e);
         }
     };
     
-    if file_metadata.len() > 5 * 1024 * 1024 {  // 5 MB
-        eprintln!(
-            "{} File '{}' size exceeds 5MB", "Error:".truecolor(173, 127, 172),
-            filename
-        );
+    if file_metadata.len() > 5 * 1024 * 1024{  // 5 MB
         return Ok(Default::default());
     }
 
@@ -381,9 +281,7 @@ fn read_sha256_file(file_path: &PathBuf, filename: &str) -> io::Result<String> {
     file.read_to_end(&mut raw_content).map_err(|e| {
         eprintln!(
             "{} failed to read '{}' file content: {}",
-            "Error:".truecolor(173, 127, 172),
-            filename.bold().white(),
-            e
+            "Error:".truecolor(173, 127, 172), filename.bold().white(), e
         );
         e
     })?;
@@ -391,8 +289,7 @@ fn read_sha256_file(file_path: &PathBuf, filename: &str) -> io::Result<String> {
     if raw_content.is_empty() {
         eprintln!(
             "{} file '{}' is empty",
-            "Error:".truecolor(173, 127, 172),
-            filename
+            "Error:".truecolor(173, 127, 172), filename
         );
         return Ok(Default::default());
     }
@@ -464,7 +361,7 @@ fn highlight_differences(a: &str, b: &str) -> String {
     let mut squiggles = String::new();
     for (char_a, char_b) in a_padded.chars().zip(b_padded.chars()) {
         if char_a == char_b {
-            squiggles.push_str(" ");
+            squiggles.push(' ');
         } else {
             squiggles.push_str(&"~".truecolor(173, 127, 172).to_string());
         }
