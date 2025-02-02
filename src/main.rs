@@ -23,37 +23,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Print the checksum of a file
     S {
-        /// Input filename
         filename: PathBuf,
     },
-    /// Print the checksum of input text
     T {
-        /// Input text
         text: String,
     },
-    /// Compare files, checksums or a mix of both
     C {
-        /// First input (file or checksum)
         input1: String,
-        /// Second input (file or checksum)
         input2: String,
     },
-    /// Generate and write the checksum to a file
     W {
-        /// Input filename
         filename: PathBuf,
     },
-    /// Generate and write checksums for all files in a directory
     WR {
-        /// Directory path (defaults to current directory)
         #[arg(default_value = ".")]
         directory: PathBuf,
     },
-    /// Compare checksums of all files in a directory to a SHA256 file
     CR {
-        /// Directory path (defaults to current directory)
         #[arg(default_value = ".")]
         directory: PathBuf,
     },
@@ -321,8 +308,6 @@ fn main() {
     }
 }
 
-// Keep all other functions unchanged...
-
 fn compute_sha_for_file(filepath: &PathBuf, filename: &str, spinner_switch: bool) -> String {
     let file = match File::open(filepath) {
         Ok(file) => file,
@@ -377,17 +362,15 @@ fn read_sha256_file(file_path: &PathBuf, filename: &str) -> io::Result<String> {
         Err(e) => {
             eprintln!(
                 "{} failed to open the file '{}'",
-                "Error:".truecolor(173, 127, 172),
-                &filename.bold().white()
+                "Error:".truecolor(173, 127, 172), &filename.bold().white()
             );
             return Err(e);
         }
     };
     
-    if file_metadata.len() > 5 * 1024 * 1024{  // 5 MB
+    if file_metadata.len() > 5 * 1024 * 1024 {  // 5 MB
         eprintln!(
-            "{} File '{}' size exceeds 50MB",
-            "Error:".truecolor(173, 127, 172),
+            "{} File '{}' size exceeds 5MB", "Error:".truecolor(173, 127, 172),
             filename
         );
         return Ok(Default::default());
@@ -422,8 +405,7 @@ fn read_sha256_file(file_path: &PathBuf, filename: &str) -> io::Result<String> {
     if had_errors {
         eprintln!(
             "{} failed to decode file '{}'",
-            "Error:".truecolor(173, 127, 172),
-            filename
+            "Error:".truecolor(173, 127, 172), filename
         );
         return Ok(Default::default());
     }
