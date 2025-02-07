@@ -135,8 +135,13 @@ fn main() {
             
             let file_1_result = is_file_sha(&first_file_path);
             let file_2_result = is_file_sha(&second_file_path);
-
-            if input1.len() == 64 {
+            
+            if input1.len() == 64 && input2.len() == 64 {
+                let checksum_1 = input1.to_lowercase();
+                let checksum_2 = input2.to_lowercase();
+                output_result(&checksum_1, &checksum_2, "USER-SHA-1", "USER-SHA-2");
+                return;
+            } else if input1.len() == 64 {
                 let checksum_1 = input1.to_lowercase();
                 if let Ok(Some(checksum_2)) = file_2_result {
                     output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
@@ -145,9 +150,7 @@ fn main() {
                 let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true);
                 output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
                 return;
-            }
-
-            if input2.len() == 64 {
+            } else if input2.len() == 64 {
                 let checksum_1 = input2.to_lowercase();
                 if let Ok(Some(checksum_2)) = file_1_result {
                     output_result(&checksum_2, &checksum_1, &shortened_first_filename, "USER-SHA");
@@ -157,12 +160,7 @@ fn main() {
                 output_result(&checksum_2, &checksum_1, &shortened_first_filename, "USER-SHA");
                 return;
             }
-            if input1.len() == 64 && input2.len() == 64 {
-                let checksum_1 = input1.to_lowercase();
-                let checksum_2 = input2.to_lowercase();
-                output_result(&checksum_1, &checksum_2, "USER-SHA-1", "USER-SHA-2");
-                return;
-            }
+            
 
             match (file_1_result, file_2_result) {
                 (Ok(Some(_)), Ok(Some(extracted_checksum))) => {
