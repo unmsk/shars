@@ -1,4 +1,4 @@
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::fs;
 use std::env::current_dir;
 use std::fs::File;
@@ -132,10 +132,9 @@ fn main() {
             let shortened_first_filename = shorten_str(first_filename, 18);
             let shortened_second_filename = shorten_str(second_filename, 18);
 
-            
             let file_1_result = is_file_sha(&first_file_path);
             let file_2_result = is_file_sha(&second_file_path);
-            
+
             if input1.len() == 64 && input2.len() == 64 {
                 let checksum_1 = input1.to_lowercase();
                 let checksum_2 = input2.to_lowercase();
@@ -143,56 +142,59 @@ fn main() {
                 return;
             } else if input1.len() == 64 {
                 let checksum_1 = input1.to_lowercase();
-                if let Ok(Some(checksum_2)) = file_2_result {
-                    output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
-                    return;
+                if file_2_result {
+                    let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
+                    println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
+                    output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename)
+                } else {
+                    let checksum_2 = compute_sha_for_file(&second_file_path, &shortened_second_filename, true);
+                    output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename)
                 }
-                let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true);
-                output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
                 return;
             } else if input2.len() == 64 {
-                let checksum_1 = input2.to_lowercase();
-                if let Ok(Some(checksum_2)) = file_1_result {
-                    output_result(&checksum_2, &checksum_1, &shortened_first_filename, "USER-SHA");
-                    return;
+                let checksum_2 = input2.to_lowercase();
+                if file_1_result {
+                    let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &input2.to_lowercase());
+                    println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
+                    output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA")
+                } else {
+                    let checksum_1 = compute_sha_for_file(&first_file_path, &shortened_first_filename, true);
+                    output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA")
                 }
-                let checksum_2 = compute_sha_for_file(&first_file_path, first_filename, true);
-                output_result(&checksum_2, &checksum_1, &shortened_first_filename, "USER-SHA");
                 return;
             }
-            
 
             match (file_1_result, file_2_result) {
-                (Ok(Some(_)), Ok(Some(extracted_checksum))) => {
+                (true, true) => {
                     let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
-                    let checksum_2 = extracted_checksum.trim().to_lowercase();
+                    let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
                     println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                     output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                 }
 
-                (Ok(Some(extracted_checksum)), Ok(None)) => {
-                    let checksum_1 = compute_sha_for_file(&second_file_path, &shortened_second_filename, true);
-                    let checksum_2 = extracted_checksum.trim().to_lowercase();
+                (true, false) => {
+                    let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true);
+                    let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &checksum_2);
                     println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
-                    output_result(&checksum_2, &checksum_1, &shortened_first_filename, &shortened_second_filename)
+                    output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename);
                 }
 
-                (Ok(None), Ok(Some(extracted_checksum))) => {
+                (false, true) => {
                     let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
-                    let checksum_2 = extracted_checksum.trim().to_lowercase();
+                    let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
                     println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                     output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                 }
 
-                (Ok(None), Ok(None)) => {
+                (false, false) => {
+                    println!("gucci");
                     let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
                     let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true).to_lowercase();
                     output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                 }
 
-                _ => {}
-
             }
+
         }
         Commands::WR { directory } => {
             let dir = if directory == PathBuf::from(".") {
@@ -323,48 +325,73 @@ fn read_sha256_file(file_path: &PathBuf, filename: &str) -> io::Result<String> {
     Ok(utf16_decoded.to_string())
 }
 
-fn is_file_sha(filepath: &PathBuf) -> io::Result<Option<String>>  {
+fn is_file_sha(filepath: &PathBuf) -> bool {
     let metadata = match fs::metadata(filepath) {
         Ok(metadata) => metadata,
-        Err(_err) => {
-            return Ok(None);
-        }
+        Err(_) => return false,
     };
-    if metadata.len() > 5 * 1024 * 1024 { // 5 MB
-        return Ok(None);
+
+    if metadata.len() > 5 * 1024 * 1024 || metadata.len() == 0 {
+        return false;
     }
-    let ext = filepath
-        .extension()
+
+    let ext = filepath.extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase());
 
-    if matches!(ext.as_deref(), Some("sha256") | Some("txt") | Some("dat") | Some("sha")) {
-        let file_content = fs::read(filepath)?;
-        let file_str = match String::from_utf8(file_content.clone()) {
-            Ok(content) => content,
-            Err(_) if file_content.len() >= 2 && file_content[0] == 0xFF && file_content[1] == 0xFE => {
-                let utf16_data: Vec<u16> = file_content[2..]
-                    .chunks(2)
-                    .filter_map(|pair| {
-                        if pair.len() == 2 {
-                            Some(u16::from_le_bytes([pair[0], pair[1]]))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                String::from_utf16(&utf16_data).unwrap_or_default()
-            }
-            _ => return Ok(None),
-        };
-        let sha256_regex = Regex::new(r"\b[a-fA-F0-9]{64}\b").unwrap();
-        if let Some(mat) = sha256_regex.find(&file_str) {
-            return Ok(Some(mat.as_str().to_string()));
-        }
+    if !matches!(ext.as_deref(), Some("sha256") | Some("sha") | Some("sha1") | Some("sha512")) {
+        return false;
     }
 
-    Ok(None)
+    let file = match fs::File::open(filepath) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+
+    let mut reader = io::BufReader::new(file);
+    let mut first_line = String::new();
+    if reader.read_line(&mut first_line).is_err() {
+        return false;
+    }
+    let mut parts = first_line.split_whitespace();
+    let hash_part = parts.next().unwrap_or("");
+    if !hash_part.chars().all(|c| c.is_ascii_hexdigit()) {
+        return false;
+    }
+
+    let hash_len = hash_part.len();
+    if hash_len != 40 && hash_len != 64 && hash_len != 128 {
+        return false;
+    }
+
+    true
+}
+
+fn return_checksum(file_path: &PathBuf, shortened_filename: &str, checksum_1: &str) -> String {
+    let content = match read_sha256_file(file_path, shortened_filename) {
+        Ok(content) => content.to_string(),
+        Err(_) => return String::new()
+    };
+
+    let re = match Regex::new(&format!(
+        r"\b{}[0-9a-fA-F]{{{}}}\b",
+        regex_lite::escape(checksum_1),
+        64 - checksum_1.len()
+    )) {
+        Ok(re) => re,
+        Err(_) => return String::new()
+    };
+
+    if let Some(mat) = re.find(&content) {
+        return mat.as_str().trim().to_string();
+    }
+
+    let re_any = Regex::new(r"\b[0-9a-fA-F]{64}\b").unwrap();
+    if let Some(mat) = re_any.find(&content) {
+        return mat.as_str().trim().to_string();
+    }
+
+    String::new()
 }
 
 fn highlight_differences(a: &str, b: &str) -> String {
@@ -409,12 +436,12 @@ fn shorten_str(file_name: &str, max_len: usize) -> String {
 }
 
  fn output_result(lower_checksum_1: &str, lower_checksum_2: &str, padded_filename_1: &str, padded_filename_2: &str) {
-     let squiggles = highlight_differences(&lower_checksum_1, &lower_checksum_2);
-     println!("{} : '{}'", lower_checksum_1.bold().white(), padded_filename_1.trim());
+     let squiggles = highlight_differences(lower_checksum_1, lower_checksum_2);
+     println!("{} : '{}'", lower_checksum_1.bold(), padded_filename_1.trim());
      if squiggles.contains('~') {
          println!("{}", squiggles.bold())
      }
-     println!("{} : '{}'", lower_checksum_2.bold().white(), padded_filename_2.trim());
+     println!("{} : '{}'", lower_checksum_2.bold(), padded_filename_2.trim());
      if lower_checksum_1 == lower_checksum_2 {
          println!("{} Integrity check passed", "Status:".truecolor(119, 193, 178));
      } else {
