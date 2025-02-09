@@ -43,25 +43,49 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    #[command(about = "Creates a checksum of a given file", long_about = "Computes the cryptographic checksum of the specified file")]
     S {
+        #[arg(help = "The path to the file to hash")]
         filename: PathBuf,
     },
+
+    #[command(about = "Creates a checksum of a given text string", long_about = "Computes the cryptographic checksum of the provided text input")]
     T {
+        #[arg(help = "The text to hash")]
         text: String,
     },
+
+    #[command(about = "Compares two inputs (files or checksums)", long_about = "Compares two inputs, which can be files, checksums, or a mix of both\n\n\
+    Supported comparisons:\n\
+      - File vs File: `hasher c file1.txt file2.txt`\n\
+      - File vs SHA file: `hasher c file.png file.png.sha256`\n\
+      - Checksum vs File: `hasher c <hash> file.txt`\n\
+      - Checksum vs Checksum: `hasher c <hash1> <hash2>`")]
     C {
+        #[arg(help = "The first input (file or checksum)")]
         input1: String,
+
+        #[arg(help = "The second input (file or checksum)")]
         input2: String,
     },
+
+    #[command(about = "Writes a file's checksum to a SHA file", long_about = "Generates and writes the checksum of a file to a .sha256 file")]
     W {
+        #[arg(help = "The output file to write the checksum to")]
         filename: PathBuf,
     },
+
+    #[command(about = "Creates a SHA file containing the checksums of all files in a directory", long_about = "Generates checksums for all files in a directory and writes them to a .sha256 file\n\
+    If no directory is specified, the current directory is used")]
     WR {
-        #[arg(default_value = ".")]
+        #[arg(default_value = ".", help = "The directory to compute checksums for")]
         directory: PathBuf,
     },
+
+    #[command(about = "Verifies all files in a directory against a SHA file", long_about = "Verifies the integrity of all files in a directory by checking them against a .sha256 file\n\
+    If no directory is specified, the current directory is used")]
     CR {
-        #[arg(default_value = ".")]
+        #[arg(default_value = ".", help = "The directory to verify checksums in")]
         directory: PathBuf,
     },
 }
