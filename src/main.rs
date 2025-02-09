@@ -443,8 +443,8 @@ fn shorten_str(file_name: &str, max_len: usize) -> String {
      }
      println!("{} : '{}'", lower_checksum_2.bold(), padded_filename_2.trim());
      if lower_checksum_1 == lower_checksum_2 {
-         println!("{} Integrity check passed", "Status:".truecolor(119, 193, 178));
+         println!("{} {}", "Status:".truecolor(119, 193, 178).white().bold(), "Integrity check passed".white().bold());
      } else {
-         println!("{} Integrity check failed", "Status:".truecolor(173, 127, 172));
+         println!("{} {}", "Status:".truecolor(173, 127, 172).white().bold(), "Integrity check failed".white().bold());
      }
  }
