@@ -27,7 +27,7 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
 
     let loading_message = format!("Computing checksums for directory '{}'", dir_name);
     let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
-    
+
     let files: Vec<_> = WalkDir::new(&dir)
         .into_iter()
         .filter_map(Result::ok)
@@ -36,7 +36,7 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
                 entry.file_name().to_string_lossy().to_ascii_lowercase() != checksums_file_name.to_ascii_lowercase()
         })
         .collect();
-    
+
     let results: Vec<_> = files.par_iter()
         .map(|entry| {
             let path = entry.path();
@@ -45,7 +45,7 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
             (result, relative_path.to_string_lossy().into_owned())
         })
         .collect();
-    
+
     for (hash, path) in results {
         writeln!(checksums_file, "{} {}", hash, path)?;
     }

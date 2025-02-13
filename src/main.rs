@@ -45,6 +45,7 @@ struct Cli {
 enum Commands {
     #[command(about = "Creates a checksum of a given file")]
     S {
+        #[arg(value_parser = parse_path)]
         filename: PathBuf,
     },
 
@@ -63,18 +64,21 @@ enum Commands {
 
     #[command(about = "Writes a file's checksum to a SHA file")]
     W {
+        #[arg(value_parser = parse_path)]
         filename: PathBuf,
     },
 
     #[command(about = "Creates a SHA file containing the checksums of all files in a directory")]
     WR {
         #[arg(default_value = ".")]
+        #[arg(value_parser = parse_path)]
         directory: PathBuf,
     },
 
     #[command(about = "Verifies all files in a directory against a SHA file")]
     CR {
         #[arg(default_value = ".")]
+        #[arg(value_parser = parse_path)]
         directory: PathBuf,
     },
 }
@@ -446,6 +450,16 @@ fn shorten_str(file_name: &str, max_len: usize) -> String {
     } else {
         file_name.to_string()
     }
+}
+
+fn parse_path(path: &str) -> Result<PathBuf, String> {
+    let clean_path = path.trim_matches('"').trim_matches('\'');
+    let path_buf = PathBuf::from(clean_path);
+    if !path_buf.exists() {
+        return Err(format!("Path does not exist: {}", clean_path));
+    }
+
+    Ok(path_buf)
 }
 
  fn output_result(lower_checksum_1: &str, lower_checksum_2: &str, padded_filename_1: &str, padded_filename_2: &str) {
