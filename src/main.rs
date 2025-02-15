@@ -204,7 +204,6 @@ fn main() {
                 }
 
                 (false, false) => {
-                    println!("gucci");
                     let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
                     let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true).to_lowercase();
                     output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
