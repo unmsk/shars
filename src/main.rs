@@ -22,7 +22,6 @@ use recursive_ops::{write_recursive, check_recursive};
     long_about = None,
     author = crate_authors!()
 )]
-
 #[command(help_template = "\
 {name} {version}
 Author: {author}
@@ -33,8 +32,6 @@ Author: {author}
 
 {all-args}
 ")]
-
-
 struct Cli {
     #[command(subcommand)]
     command: Commands,
