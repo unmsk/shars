@@ -10,7 +10,6 @@ use std::path::Path;
 use regex_lite::Regex;
 use encoding_rs::UTF_16LE;
 use clap::{Parser, Subcommand, crate_authors, crate_version};
-
 mod recursive_ops;
 use recursive_ops::{write_recursive, check_recursive};
 
@@ -463,14 +462,14 @@ fn parse_path(path: &str) -> Result<PathBuf, String> {
 
  fn output_result(lower_checksum_1: &str, lower_checksum_2: &str, padded_filename_1: &str, padded_filename_2: &str) {
      let squiggles = highlight_differences(lower_checksum_1, lower_checksum_2);
-     println!("{} : '{}'", lower_checksum_1.bold(), padded_filename_1.trim());
+     println!("{} : '{}'", lower_checksum_1.white(), padded_filename_1.trim());
      if squiggles.contains('~') {
          println!("{}", squiggles.bold())
      }
-     println!("{} : '{}'", lower_checksum_2.bold(), padded_filename_2.trim());
+     println!("{} : '{}'", lower_checksum_2.white(), padded_filename_2.trim());
      if lower_checksum_1 == lower_checksum_2 {
-         println!("{} {}", "Status:".truecolor(119, 193, 178).white().bold(), "Integrity check passed".white().bold());
+         println!("{} {}", "Status:".truecolor(119, 193, 178), "[ OK ]".bold());
      } else {
-         println!("{} {}", "Status:".truecolor(173, 127, 172).white().bold(), "Integrity check failed".white().bold());
+         println!("{} {}", "Status:".truecolor(173, 127, 172), "[ !! ]".bold());
      }
  }
