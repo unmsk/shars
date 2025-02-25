@@ -239,6 +239,11 @@ fn main() {
 }
 
 fn compute_sha_for_file(filepath: &PathBuf, filename: &str, spinner_switch: bool) -> String {
+    if !filepath.exists() {
+        eprintln!("{} no file found in '{}'", "Error:".truecolor(173, 127, 172), filepath.display());
+        std::process::exit(0);
+    }
+
     let file = match File::open(filepath) {
         Ok(file) => file,
         Err(_e) => {
@@ -451,7 +456,7 @@ fn parse_path(path: &str) -> Result<PathBuf, String> {
     let clean_path = path.trim_matches('"').trim_matches('\'');
     let path_buf = PathBuf::from(clean_path);
     if !path_buf.exists() {
-        return Err(format!("Path does not exist: {}", clean_path));
+        return Err(format!("{} no file found in '{}'", "Error:".truecolor(173, 127, 172), clean_path));
     }
 
     Ok(path_buf)
