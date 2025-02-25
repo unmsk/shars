@@ -53,9 +53,11 @@ enum Commands {
     #[command(about = "Compares two inputs (files or checksums)")]
     C {
         #[arg(help = "File or checksum")]
-        input1: String,
+        #[arg(value_parser = parse_path)]
+        input1: PathBuf,
         #[arg(help = "File or checksum")]
-        input2: String,
+        #[arg(value_parser = parse_path)]
+        input2: PathBuf,
     },
 
     #[command(about = "Writes a file's checksum to a SHA file")]
@@ -131,83 +133,101 @@ fn main() {
         }
 
         Commands::C { input1, input2 } => {
-            let first_file_path = PathBuf::from(&input1);
-            let second_file_path = PathBuf::from(&input2);
+            fn is_checksum(path: &Path) -> bool {
+                let path_str = path.to_string_lossy();
+                path_str.len() == 64 && path_str.chars().all(|c| c.is_ascii_hexdigit())
+            }
 
-            if first_file_path.exists() && first_file_path.is_dir() || second_file_path.exists() && second_file_path.is_dir() {
+            let is_checksum1 = is_checksum(&input1);
+            let is_checksum2 = is_checksum(&input2);
+
+            if (!is_checksum1 && input1.exists() && input1.is_dir()) ||
+                (!is_checksum2 && input2.exists() && input2.is_dir()) {
                 eprintln!("{} the 'c' command does not work with directories. Use 'wr' or 'cr' instead",
-                    "Error:".truecolor(173, 127, 172));
+                          "Error:".truecolor(173, 127, 172));
                 return;
             }
 
-            let first_filename = first_file_path.file_name().unwrap().to_str().unwrap();
-            let second_filename = second_file_path.file_name().unwrap().to_str().unwrap();
-            let shortened_first_filename = shorten_str(first_filename, 18);
-            let shortened_second_filename = shorten_str(second_filename, 18);
-
-            let file_1_result = is_file_sha(&first_file_path);
-            let file_2_result = is_file_sha(&second_file_path);
-
-            if input1.len() == 64 && input2.len() == 64 {
-                let checksum_1 = input1.to_lowercase();
-                let checksum_2 = input2.to_lowercase();
-                output_result(&checksum_1, &checksum_2, "USER-SHA-1", "USER-SHA-2");
-                return;
-            } else if input1.len() == 64 {
-                let checksum_1 = input1.to_lowercase();
-                if file_2_result {
-                    let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
-                    println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
-                    output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename)
-                } else {
-                    let checksum_2 = compute_sha_for_file(&second_file_path, &shortened_second_filename, true);
-                    output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename)
-                }
-                return;
-            } else if input2.len() == 64 {
-                let checksum_2 = input2.to_lowercase();
-                if file_1_result {
-                    let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &input2.to_lowercase());
-                    println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
-                    output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA")
-                } else {
-                    let checksum_1 = compute_sha_for_file(&first_file_path, &shortened_first_filename, true);
-                    output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA")
-                }
-                return;
-            }
-
-            match (file_1_result, file_2_result) {
+            match (is_checksum1, is_checksum2) {
                 (true, true) => {
-                    let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
-                    let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
-                    println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
-                    output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
-                }
-
+                    let checksum_1 = input1.to_string_lossy().to_lowercase();
+                    let checksum_2 = input2.to_string_lossy().to_lowercase();
+                    output_result(&checksum_1, &checksum_2, "USER-SHA-1", "USER-SHA-2");
+                },
                 (true, false) => {
-                    let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true);
-                    let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &checksum_2);
-                    println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
-                    output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename);
-                }
+                    let checksum_1 = input1.to_string_lossy().to_lowercase();
+                    let second_filename = input2.file_name().unwrap().to_str().unwrap();
+                    let shortened_second_filename = shorten_str(second_filename, 18);
 
+                    if is_file_sha(&input2) {
+                        let checksum_2 = return_checksum(&input2, &shortened_second_filename, &checksum_1);
+                        println!("{} hasher extracted checksum from file '{}'",
+                                 "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
+                        output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
+                    } else {
+                        let checksum_2 = compute_sha_for_file(&input2, &shortened_second_filename, true);
+                        output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
+                    }
+                },
                 (false, true) => {
-                    let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
-                    let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
-                    println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
-                    output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
-                }
+                    let checksum_2 = input2.to_string_lossy().to_lowercase();
+                    let first_filename = input1.file_name().unwrap().to_str().unwrap();
+                    let shortened_first_filename = shorten_str(first_filename, 18);
 
+                    if is_file_sha(&input1) {
+                        let checksum_1 = return_checksum(&input1, &shortened_first_filename, &checksum_2);
+                        println!("{} hasher extracted checksum from file '{}'",
+                                 "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
+                        output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA");
+                    } else {
+                        let checksum_1 = compute_sha_for_file(&input1, &shortened_first_filename, true);
+                        output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA");
+                    }
+                },
                 (false, false) => {
-                    let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
-                    let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true).to_lowercase();
-                    output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
+                    let first_filename = input1.file_name().unwrap().to_str().unwrap();
+                    let second_filename = input2.file_name().unwrap().to_str().unwrap();
+                    let shortened_first_filename = shorten_str(first_filename, 18);
+                    let shortened_second_filename = shorten_str(second_filename, 18);
+
+                    let file_1_result = is_file_sha(&input1);
+                    let file_2_result = is_file_sha(&input2);
+
+                    let first_file_path = PathBuf::from(&input1);
+                    let second_file_path = PathBuf::from(&input2);
+
+                    match (file_1_result, file_2_result) {
+                        (true, true) => {
+                            let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
+                            let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
+                            println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
+                            output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
+                        }
+
+                        (true, false) => {
+                            let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true);
+                            let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &checksum_2);
+                            println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
+                            output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename);
+                        }
+
+                        (false, true) => {
+                            let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
+                            let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
+                            println!("{} hasher extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
+                            output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
+                        }
+
+                        (false, false) => {
+                            let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
+                            let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true).to_lowercase();
+                            output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
+                        }
+                    }
                 }
-
             }
-
         }
+        
         Commands::WR { directory } => {
             let dir = if directory == PathBuf::from(".") {
                 current_dir().unwrap()
@@ -452,11 +472,14 @@ fn shorten_str(file_name: &str, max_len: usize) -> String {
     }
 }
 
-fn parse_path(path: &str) -> Result<PathBuf, String> {
-    let clean_path = path.trim_matches('"').trim_matches('\'');
-    let path_buf = PathBuf::from(clean_path);
+fn parse_path(s: &str) -> Result<PathBuf, String> {
+    let clean_str = s.trim_matches('"').trim_matches('\'');
+    if clean_str.len() == 64 && clean_str.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(PathBuf::from(clean_str));
+    }
+    let path_buf = PathBuf::from(clean_str);
     if !path_buf.exists() {
-        return Err(format!("{} no file found in '{}'", "Error:".truecolor(173, 127, 172), clean_path));
+        return Err(format!("{} no file found in '{}'", "Error:".truecolor(173, 127, 172), clean_str));
     }
 
     Ok(path_buf)
