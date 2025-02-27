@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::Write;
@@ -65,12 +65,13 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         return Ok(());
     }
 
-    let dir_name = dir.file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| {
+    let dir_name = match dir.file_name().and_then(|n| n.to_str()) {
+        Some(name) => name,
+        None => {
             eprintln!("{} directory has no file name", "Error:".truecolor(173, 127, 172));
-            io::Error::new(io::ErrorKind::InvalidInput, "Invalid directory name")
-        })?;
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid directory name"));
+        }
+    };
 
     let checksums_file_name = format!("{}.sha256", dir_name);
     let checksums_path = dir.join(&checksums_file_name);
@@ -81,9 +82,7 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
     }
 
     let sha256_content = read_sha256_file(&checksums_path, dir_name)?;
-    let text = sha256_content.to_lowercase();
-
-    let expected_files = parse_sha256_file(&text);
+    let expected_files = parse_sha256_file(&sha256_content.to_lowercase());
 
     let loading_message = format!("Verifying checksums for directory '{}'", dir_name);
     let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
@@ -97,54 +96,51 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         })
         .collect();
 
-    let mut actual_files = HashMap::new();
-    for entry in &files {
-        let path = entry.path();
-        let relative_path = strip_prefix(path, &dir);
-        let relative_path_str = relative_path.to_string_lossy().to_string();
-        let relative_path_lower = relative_path_str.to_ascii_lowercase();
+    use rayon::prelude::*;
+    let results: Vec<(FileStatus, String, String)> = files.par_iter()
+        .map(|entry| {
+            let path = entry.path();
+            let relative_path = strip_prefix(path, &dir);
+            let relative_path_str = relative_path.to_string_lossy().to_string();
+            let relative_path_lower = relative_path_str.to_ascii_lowercase();
+            let normalized_path_lower = relative_path_lower.replace('\\', "/");
 
-        let normalized_path_lower = relative_path_lower.replace('\\', "/");
+            let file_hash = compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
 
-        let file_hash = compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
-        actual_files.insert(normalized_path_lower, (relative_path_str, file_hash));
-    }
-
-    let mut results = Vec::new();
-
-    for (lower_path, (orig_path, actual_hash)) in &actual_files {
-        if let Some(expected_hash) = expected_files.get(lower_path) {
-            let matches = actual_hash == expected_hash;
-            if matches {
-                results.push((FileStatus::Ok, orig_path.clone()));
+            let status = if let Some(expected_hash) = expected_files.get(&normalized_path_lower) {
+                if &file_hash == expected_hash {
+                    FileStatus::Ok
+                } else {
+                    FileStatus::Mismatched
+                }
             } else {
-                results.push((FileStatus::Mismatched, orig_path.clone()));
-            }
-        } else {
-            results.push((FileStatus::ExtraFile, orig_path.clone()));
-        }
-    }
+                FileStatus::ExtraFile
+            };
 
-    let mut missing_files_from_checksum = Vec::new();
-    for checksum_path in expected_files.keys() {
-        if !actual_files.contains_key(checksum_path) {
-            missing_files_from_checksum.push(checksum_path.clone());
-        }
-    }
-
-    clear_spinner_and_flush(&mut spinner);
+            (status, normalized_path_lower, relative_path_str)
+        })
+        .collect();
 
     let mut ok_files = Vec::new();
     let mut mismatched_files = Vec::new();
     let mut extra_files = Vec::new();
+    let mut actual_file_paths = HashSet::with_capacity(results.len());
 
-    for (status, filename) in results {
+    for (status, normalized_path, relative_path) in results {
+        actual_file_paths.insert(normalized_path);
         match status {
-            FileStatus::Ok => ok_files.push(filename),
-            FileStatus::Mismatched => mismatched_files.push(filename),
-            FileStatus::ExtraFile => extra_files.push(filename),
+            FileStatus::Ok => ok_files.push(relative_path),
+            FileStatus::Mismatched => mismatched_files.push(relative_path),
+            FileStatus::ExtraFile => extra_files.push(relative_path),
         }
     }
+
+    let missing_files_from_checksum: Vec<_> = expected_files.keys()
+        .filter(|path| !actual_file_paths.contains(*path))
+        .cloned()
+        .collect();
+
+    clear_spinner_and_flush(&mut spinner);
 
     let count_ok = ok_files.len();
     let count_mismatched = mismatched_files.len();
@@ -176,19 +172,20 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
             }
         }
 
-        if count_ok > problem_count {
-            println!("{} {} out of {} checksums passed ({} mismatched, {} missing)",
-                     "Status:".truecolor(119, 193, 178), count_ok, total_checked + count_missing, count_mismatched, count_missing);
+        let status_color = if count_ok > problem_count {
+            "Status:".truecolor(119, 193, 178)
         } else {
-            println!("{} {} out of {} checksums passed ({} mismatched, {} missing)",
-                     "Status:".truecolor(173, 127, 172), count_ok, total_checked + count_missing, count_mismatched, count_missing);
-        }
+            "Status:".truecolor(173, 127, 172)
+        };
+
+        println!("{} {} out of {} checksums passed ({} mismatched, {} missing)",
+                 status_color, count_ok, total_checked + count_missing, count_mismatched, count_missing);
     }
 
     Ok(())
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 enum FileStatus {
     Ok,
     Mismatched,
@@ -196,25 +193,23 @@ enum FileStatus {
 }
 
 fn parse_sha256_file(content: &str) -> HashMap<String, String> {
-    let mut result = HashMap::new();
+    let mut result = HashMap::with_capacity(content.lines().count());
 
     for line in content.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with("#") {
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
 
-        let parts: Vec<&str> = line.splitn(2, ' ').collect();
-        if parts.len() == 2 {
-            let hash = parts[0].to_lowercase();
-            let mut filepath = parts[1].trim();
+        if let Some((hash, filepath)) = line.split_once(' ') {
+            let hash = hash.to_lowercase();
+            let mut filepath = filepath.trim();
 
             if filepath.starts_with('*') {
                 filepath = &filepath[1..];
             }
 
             let normalized_path = filepath.replace('\\', "/");
-
             result.insert(normalized_path.to_ascii_lowercase(), hash);
         }
     }
