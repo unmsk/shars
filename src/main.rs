@@ -376,32 +376,39 @@ fn is_file_sha(filepath: &PathBuf) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase());
 
-    if !matches!(ext.as_deref(), Some("sha256") | Some("sha") | Some("sha1") | Some("sha512")) {
+    if !matches!(ext.as_deref(), Some("sha256") | Some("sha") | Some("txt")) {
         return false;
     }
 
-    let file = match fs::File::open(filepath) {
+    let file = match File::open(filepath) {
         Ok(file) => file,
         Err(_) => return false,
     };
 
-    let mut reader = io::BufReader::new(file);
-    let mut first_line = String::new();
-    if reader.read_line(&mut first_line).is_err() {
-        return false;
-    }
-    let mut parts = first_line.split_whitespace();
-    let hash_part = parts.next().unwrap_or("");
-    if !hash_part.chars().all(|c| c.is_ascii_hexdigit()) {
-        return false;
+    let mut reader = BufReader::new(file);
+    let mut valid_hash_found = false;
+    
+    for _ in 0..10 {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                let mut parts = line.split_whitespace();
+                if let Some(hash_part) = parts.next() {
+                    if hash_part.chars().all(|c| c.is_ascii_hexdigit()) {
+                        let hash_len = hash_part.len();
+                        if hash_len == 40 || hash_len == 64 || hash_len == 128 {
+                            valid_hash_found = true;
+                            break;
+                        }
+                    }
+                }
+            },
+            Err(_) => return false,
+        }
     }
 
-    let hash_len = hash_part.len();
-    if hash_len != 40 && hash_len != 64 && hash_len != 128 {
-        return false;
-    }
-
-    true
+    valid_hash_found
 }
 
 fn return_checksum(file_path: &PathBuf, shortened_filename: &str, checksum_1: &str) -> String {
@@ -445,12 +452,6 @@ fn highlight_differences(a: &str, b: &str) -> String {
     }
 
     squiggles
-}
-
-fn find_matching_sha256_for_filename<'a>(text: &'a str, checksum: &str) -> Option<&'a str> {
-    let re = Regex::new(&format!(r"\b{}[0-9a-fA-F]{{{}}}\b", checksum, 64 - checksum.len()))
-        .expect("Invalid regex");
-    re.find(text).map(|m| m.as_str())
 }
 
 fn clear_spinner_and_flush(spinner: &mut Spinner) {
