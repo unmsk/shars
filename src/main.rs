@@ -276,39 +276,34 @@ fn compute_sha_for_file(filepath: &PathBuf, filename: &str, spinner_switch: bool
     let mut hasher = Sha256::new();
     let mut buffer = [0; 65536];
 
-    if spinner_switch {
+    let mut spinner_opt = if spinner_switch {
         let loading_message = format!("Loading file '{}'", filename);
-        let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
-        loop {
-            let bytes_read = match reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(bytes_read) => bytes_read,
-                Err(_e) => {
-                    clear_spinner_and_flush(&mut spinner);
-                    eprintln!("{} failed to read the file '{}'", "Error:".truecolor(173, 127, 172), &filename.bold().white());
-                    std::process::exit(0);
-                }
-            };
-            hasher.update(&buffer[..bytes_read]);
-        }
-        clear_spinner_and_flush(&mut spinner);
-        let result = hasher.finalize();
-        format!("{:x}", result)
+        Some(Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout))
     } else {
-        loop {
-            let bytes_read = match reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(bytes_read) => bytes_read,
-                Err(_e) => {
-                    eprintln!("{} failed to read the file '{}'", "Error:".truecolor(173, 127, 172), &filename.bold().white());
-                    std::process::exit(0);
+        None
+    };
+
+    loop {
+        let bytes_read = match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(bytes_read) => bytes_read,
+            Err(_e) => {
+                if let Some(mut spinner) = spinner_opt.take() {
+                    clear_spinner_and_flush(&mut spinner);
                 }
-            };
-            hasher.update(&buffer[..bytes_read]);
-        }
-        let result = hasher.finalize();
-        format!("{:x}", result)
+                eprintln!("{} failed to read the file '{}'", "Error:".truecolor(173, 127, 172), &filename.bold().white());
+                std::process::exit(0);
+            }
+        };
+        hasher.update(&buffer[..bytes_read]);
     }
+
+    if let Some(mut spinner) = spinner_opt {
+        clear_spinner_and_flush(&mut spinner);
+    }
+
+    let result = hasher.finalize();
+    format!("{:x}", result)
 }
 
 fn read_sha256_file(file_path: &PathBuf, filename: &str) -> io::Result<String> {
