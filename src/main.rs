@@ -9,16 +9,16 @@ use std::path::{PathBuf};
 use std::path::Path;
 use regex_lite::Regex;
 use encoding_rs::UTF_16LE;
-use clap::{Parser, Subcommand, crate_authors, crate_version};
+use clap::{Parser, Subcommand, crate_authors, crate_version, crate_name, crate_description};
 mod recursive_ops;
 use recursive_ops::{write_recursive, check_recursive};
 
 #[derive(Parser)]
 
 #[command(
-    name = "hasher",
+    name = crate_name!(),
     version = crate_version!(),
-    about = "A SHA-256 checksum utility",
+    about = crate_description!(),
     long_about = None,
     author = crate_authors!()
 )]
@@ -32,6 +32,7 @@ Author: {author}
 
 {all-args}
 ")]
+
 struct Cli {
     #[command(subcommand)]
     command: Commands,
