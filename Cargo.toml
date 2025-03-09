@@ -1,8 +1,9 @@
 [package]
-name = "hasher"
+name = "shars"
 version = "1.2.0"
 authors = ["bxni"]
 edition = "2021"
+description = "A SHA-256 checksum utility"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
