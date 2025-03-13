@@ -265,21 +265,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07e28edb80900c19c28f1072f2e8aeca7fa06b23cd4169cefe1af5aa3260783f"
 
 [[package]]
-name = "hasher"
-version = "1.2.0"
-dependencies = [
- "clap",
- "colored 3.0.0",
- "encoding_rs",
- "rayon",
- "regex-lite",
- "sha2",
- "spinoff",
- "tokio",
- "walkdir",
-]
-
-[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -481,6 +466,21 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "shars"
+version = "1.2.0"
+dependencies = [
+ "clap",
+ "colored 3.0.0",
+ "encoding_rs",
+ "rayon",
+ "regex-lite",
+ "sha2",
+ "spinoff",
+ "tokio",
+ "walkdir",
 ]
 
 [[package]]
