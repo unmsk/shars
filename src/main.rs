@@ -116,9 +116,8 @@ fn main() {
                 return;
             }
             let first_filename = filename.file_name().unwrap().to_string_lossy();
-            let computed_hash = compute_hash_helper(&filename, &first_filename, true);
-            let lower_computed_hash = computed_hash.to_lowercase();
-            let lower_computed_hash_and_filename = lower_computed_hash + " " + &first_filename;
+            let computed_hash = compute_hash_helper(&filename, &first_filename, true).to_lowercase();
+            let lower_computed_hash_and_filename = computed_hash + " " + &first_filename;
             let checksum_file_name = format!("{}.sha256", &first_filename);
             let sha256_file_name_raw = format!("{}.sha256", filename.to_str().unwrap());
             
@@ -441,7 +440,9 @@ fn parse_path(s: &str) -> Result<PathBuf, String> {
     Ok(path_buf)
 }
 
- fn output_result(lower_checksum_1: &str, lower_checksum_2: &str, padded_filename_1: &str, padded_filename_2: &str) {
+ fn output_result(checksum_1: &str, checksum_2: &str, padded_filename_1: &str, padded_filename_2: &str) {
+     let lower_checksum_1 = &checksum_1.to_lowercase();
+     let lower_checksum_2 = &checksum_2.to_lowercase();
      let squiggles = highlight_differences(lower_checksum_1, lower_checksum_2);
      println!("{} : '{}'", lower_checksum_1.white(), padded_filename_1.trim());
      if squiggles.contains('~') {
