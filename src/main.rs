@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand, crate_authors, crate_version, crate_name, crate_d
 mod recursive_ops;
 mod hasher;
 
-use hasher::{compute_sha_for_file, compute_hash_helper};
+use hasher::compute_hash_helper;
 use recursive_ops::{write_recursive, check_recursive};
 
 #[derive(Parser)]
@@ -35,7 +35,6 @@ Author: {author}
 
 {all-args}
 ")]
-
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -199,13 +198,7 @@ fn main() {
 
                     match (file_1_result, file_2_result) {
                         (true, true) => {
-                            let checksum_1 = match compute_sha_for_file(&first_file_path, first_filename, true) {
-                                Ok(checksum_1) => checksum_1,
-                                Err(e) => {
-                                    eprintln!("Failed to compute hash: {}", e);
-                                    std::process::exit(1);
-                                }
-                            };
+                            let checksum_1 = compute_hash_helper(&first_file_path, first_filename, true);
                             let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
@@ -219,15 +212,15 @@ fn main() {
                         }
 
                         (false, true) => {
-                            let checksum_1 = compute_hash_helper(&first_file_path, first_filename, true).to_lowercase();
+                            let checksum_1 = compute_hash_helper(&first_file_path, first_filename, true);
                             let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
 
                         (false, false) => {
-                            let checksum_1 = compute_hash_helper(&first_file_path, first_filename, true).to_lowercase();
-                            let checksum_2 = compute_hash_helper(&second_file_path, second_filename, true).to_lowercase();
+                            let checksum_1 = compute_hash_helper(&first_file_path, first_filename, true);
+                            let checksum_2 = compute_hash_helper(&second_file_path, second_filename, true);
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
                     }
@@ -434,7 +427,8 @@ fn parse_path(s: &str) -> Result<PathBuf, String> {
     }
     let path_buf = PathBuf::from(clean_str);
     if !path_buf.exists() {
-        return Err(format!("{} no file found in '{}'", "error:".truecolor(173, 127, 172), clean_str));
+        eprintln!("{} no file found in '{}'", "Error:".truecolor(173, 127, 172), clean_str);
+        std::process::exit(2);
     }
 
     Ok(path_buf)
