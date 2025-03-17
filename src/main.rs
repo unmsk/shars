@@ -4,13 +4,16 @@ use std::env::current_dir;
 use std::fs::File;
 use sha2::{Sha256, Digest};
 use colored::*;
-use spinoff::{Spinner, spinners, Color, Streams};
+use spinoff::Spinner;
 use std::path::{PathBuf};
 use std::path::Path;
 use regex_lite::Regex;
 use encoding_rs::UTF_16LE;
 use clap::{Parser, Subcommand, crate_authors, crate_version, crate_name, crate_description};
 mod recursive_ops;
+mod hasher;
+
+use hasher::{compute_sha_for_file, compute_hash_helper};
 use recursive_ops::{write_recursive, check_recursive};
 
 #[derive(Parser)]
@@ -93,7 +96,7 @@ fn main() {
                 return;
             }
             let first_filename = filename.file_name().unwrap().to_string_lossy();
-            let computed_hash = compute_sha_for_file(&filename, &first_filename, true);
+            let computed_hash = compute_hash_helper(&filename, &first_filename, true);
             let shortened_first_filename = shorten_str(&first_filename, 18);
             println!("{} : '{}'", computed_hash.to_lowercase().bold().white(), shortened_first_filename);
         }
@@ -113,7 +116,7 @@ fn main() {
                 return;
             }
             let first_filename = filename.file_name().unwrap().to_string_lossy();
-            let computed_hash = compute_sha_for_file(&filename, &first_filename, true);
+            let computed_hash = compute_hash_helper(&filename, &first_filename, true);
             let lower_computed_hash = computed_hash.to_lowercase();
             let lower_computed_hash_and_filename = lower_computed_hash + " " + &first_filename;
             let checksum_file_name = format!("{}.sha256", &first_filename);
@@ -159,14 +162,13 @@ fn main() {
                     let checksum_1 = input1.to_string_lossy().to_lowercase();
                     let second_filename = input2.file_name().unwrap().to_str().unwrap();
                     let shortened_second_filename = shorten_str(second_filename, 18);
-
                     if is_file_sha(&input2) {
                         let checksum_2 = return_checksum(&input2, &shortened_second_filename, &checksum_1);
                         println!("{} shars extracted checksum from file '{}'",
                                  "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                         output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
                     } else {
-                        let checksum_2 = compute_sha_for_file(&input2, &shortened_second_filename, true);
+                        let checksum_2 = compute_hash_helper(&input2, &shortened_second_filename, true);
                         output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
                     }
                 },
@@ -174,14 +176,13 @@ fn main() {
                     let checksum_2 = input2.to_string_lossy().to_lowercase();
                     let first_filename = input1.file_name().unwrap().to_str().unwrap();
                     let shortened_first_filename = shorten_str(first_filename, 18);
-
                     if is_file_sha(&input1) {
                         let checksum_1 = return_checksum(&input1, &shortened_first_filename, &checksum_2);
                         println!("{} shars extracted checksum from file '{}'",
                                  "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
                         output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA");
                     } else {
-                        let checksum_1 = compute_sha_for_file(&input1, &shortened_first_filename, true);
+                        let checksum_1 = compute_hash_helper(&input1, &shortened_first_filename, true);
                         output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA");
                     }
                 },
@@ -199,29 +200,35 @@ fn main() {
 
                     match (file_1_result, file_2_result) {
                         (true, true) => {
-                            let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
+                            let checksum_1 = match compute_sha_for_file(&first_file_path, first_filename, true) {
+                                Ok(checksum_1) => checksum_1,
+                                Err(e) => {
+                                    eprintln!("Failed to compute hash: {}", e);
+                                    std::process::exit(1);
+                                }
+                            };
                             let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
 
                         (true, false) => {
-                            let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true);
+                            let checksum_2 = compute_hash_helper(&second_file_path, second_filename, true);
                             let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &checksum_2);
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename);
                         }
 
                         (false, true) => {
-                            let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
+                            let checksum_1 = compute_hash_helper(&first_file_path, first_filename, true).to_lowercase();
                             let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
 
                         (false, false) => {
-                            let checksum_1 = compute_sha_for_file(&first_file_path, first_filename, true).to_lowercase();
-                            let checksum_2 = compute_sha_for_file(&second_file_path, second_filename, true).to_lowercase();
+                            let checksum_1 = compute_hash_helper(&first_file_path, first_filename, true).to_lowercase();
+                            let checksum_2 = compute_hash_helper(&second_file_path, second_filename, true).to_lowercase();
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
                     }
@@ -257,54 +264,6 @@ fn main() {
                 });
         },
     }
-}
-
-fn compute_sha_for_file(filepath: &PathBuf, filename: &str, spinner_switch: bool) -> String {
-    if !filepath.exists() {
-        eprintln!("{} no file found in '{}'", "Error:".truecolor(173, 127, 172), filepath.display());
-        std::process::exit(0);
-    }
-
-    let file = match File::open(filepath) {
-        Ok(file) => file,
-        Err(_e) => {
-            eprintln!("{} failed to open the file '{}'", "Error:".truecolor(173, 127, 172), filename.bold().white());
-            std::process::exit(0);
-        }
-    };
-
-    let mut reader = BufReader::new(&file);
-    let mut hasher = Sha256::new();
-    let mut buffer = [0; 65536];
-
-    let mut spinner_opt = if spinner_switch {
-        let loading_message = format!("Loading file '{}'", filename);
-        Some(Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout))
-    } else {
-        None
-    };
-
-    loop {
-        let bytes_read = match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(bytes_read) => bytes_read,
-            Err(_e) => {
-                if let Some(mut spinner) = spinner_opt.take() {
-                    clear_spinner_and_flush(&mut spinner);
-                }
-                eprintln!("{} failed to read the file '{}'", "Error:".truecolor(173, 127, 172), &filename.bold().white());
-                std::process::exit(0);
-            }
-        };
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    if let Some(mut spinner) = spinner_opt {
-        clear_spinner_and_flush(&mut spinner);
-    }
-
-    let result = hasher.finalize();
-    format!("{:x}", result)
 }
 
 fn read_sha256_file(file_path: &PathBuf, filename: &str) -> io::Result<String> {
@@ -476,7 +435,7 @@ fn parse_path(s: &str) -> Result<PathBuf, String> {
     }
     let path_buf = PathBuf::from(clean_str);
     if !path_buf.exists() {
-        return Err(format!("{} no file found in '{}'", "Error:".truecolor(173, 127, 172), clean_str));
+        return Err(format!("{} no file found in '{}'", "error:".truecolor(173, 127, 172), clean_str));
     }
 
     Ok(path_buf)

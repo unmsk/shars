@@ -7,7 +7,11 @@ use rayon::prelude::*;
 use colored::*;
 use spinoff::{Spinner, spinners, Color, Streams};
 use std::io;
-use crate::{compute_sha_for_file, strip_prefix, read_sha256_file, clear_spinner_and_flush};
+
+use crate::{strip_prefix, read_sha256_file, clear_spinner_and_flush};
+use crate::hasher::compute_hash_helper;
+
+
 
 pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
     if !dir.is_dir() {
@@ -41,7 +45,7 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
     let results: Vec<_> = files.par_iter()
         .map(|entry| {
             let path = entry.path();
-            let result = compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
+            let result = compute_hash_helper(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
             let relative_path = strip_prefix(path, &dir);
             (result, relative_path.to_string_lossy().into_owned())
         })
@@ -105,7 +109,7 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
             let relative_path_lower = relative_path_str.to_ascii_lowercase();
             let normalized_path_lower = relative_path_lower.replace('\\', "/");
 
-            let file_hash = compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
+            let file_hash = compute_hash_helper(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
 
             let status = if let Some(expected_hash) = expected_files.get(&normalized_path_lower) {
                 if &file_hash == expected_hash {
