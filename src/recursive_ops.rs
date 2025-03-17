@@ -11,8 +11,6 @@ use std::io;
 use crate::{strip_prefix, read_sha256_file, clear_spinner_and_flush};
 use crate::hasher::compute_hash_helper;
 
-
-
 pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
     if !dir.is_dir() {
         eprintln!("{} the 'wr' command requires a directory", "Error:".truecolor(173, 127, 172));
@@ -85,7 +83,11 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         return Ok(());
     }
 
-    let sha256_content = read_sha256_file(&checksums_path, dir_name)?;
+    let sha256_content = match read_sha256_file(&checksums_path, dir_name) {
+        Ok(content) => content,
+        Err(_e) => std::process::exit(3)
+    };
+    
     let expected_files = parse_sha256_file(&sha256_content.to_lowercase());
 
     let loading_message = format!("Verifying checksums for directory '{}'", dir_name);

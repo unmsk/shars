@@ -258,39 +258,71 @@ fn main() {
     }
 }
 
-fn read_sha256_file(file_path: &PathBuf, filename: &str) -> io::Result<String> {
+fn read_sha256_file(file_path: &PathBuf, filename: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let format_error = |e: &dyn std::fmt::Display, message: &str| {
+        eprintln!(
+            "{} {} '{}': {}",
+            "Error:".truecolor(173, 127, 172),
+            message,
+            filename.bold().white(),
+            e
+        );
+    };
+
+    #[derive(Debug)]
+    enum FileContentError {
+        Empty,
+        TooLarge,
+        DecodingFailed,
+    }
+
+    impl std::fmt::Display for FileContentError {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            match self {
+                Self::Empty => write!(f, "file is empty"),
+                Self::TooLarge => write!(f, "file exceeds maximum size (5MB)"),
+                Self::DecodingFailed => write!(f, "failed to decode file content"),
+            }
+        }
+    }
+
+    impl std::error::Error for FileContentError {}
+
     let file_metadata = match fs::metadata(file_path) {
         Ok(metadata) => metadata,
         Err(e) => {
-            eprintln!(
-                "{} failed to open the file '{}'",
-                "Error:".truecolor(173, 127, 172),
-                &filename.bold().white()
-            );
-            return Err(e);
+            format_error(&e, "failed to access metadata for");
+            return Err(Box::new(e));
         }
     };
 
     if file_metadata.len() > 5 * 1024 * 1024 {  // 5 MB
-        return Ok(Default::default());
+        let error = FileContentError::TooLarge;
+        format_error(&error, "cannot process");
+        return Err(Box::new(error));
     }
 
-    let mut file = File::open(file_path)?;
+    let mut file = match File::open(file_path) {
+        Ok(file) => file,
+        Err(e) => {
+            format_error(&e, "failed to open");
+            return Err(Box::new(e));
+        }
+    };
+
     let mut raw_content = Vec::new();
-    file.read_to_end(&mut raw_content).map_err(|e| {
-        eprintln!(
-            "{} failed to read '{}' file content: {}",
-            "Error:".truecolor(173, 127, 172), filename.bold().white(), e
-        );
-        e
-    })?;
+    match file.read_to_end(&mut raw_content) {
+        Ok(_) => {},
+        Err(e) => {
+            format_error(&e, "failed to read content from");
+            return Err(Box::new(e));
+        }
+    }
 
     if raw_content.is_empty() {
-        eprintln!(
-            "{} file '{}' is empty",
-            "Error:".truecolor(173, 127, 172), filename
-        );
-        return Ok(Default::default());
+        let error = FileContentError::Empty;
+        format_error(&error, "cannot process");
+        return Err(Box::new(error));
     }
 
     if let Ok(utf8_content) = std::str::from_utf8(&raw_content) {
@@ -299,11 +331,9 @@ fn read_sha256_file(file_path: &PathBuf, filename: &str) -> io::Result<String> {
 
     let (utf16_decoded, _, had_errors) = UTF_16LE.decode(&raw_content);
     if had_errors {
-        eprintln!(
-            "{} failed to decode file '{}'",
-            "Error:".truecolor(173, 127, 172), filename
-        );
-        return Ok(Default::default());
+        let error = FileContentError::DecodingFailed;
+        format_error(&error, "failed to decode");
+        return Err(Box::new(error));
     }
 
     Ok(utf16_decoded.to_string())
