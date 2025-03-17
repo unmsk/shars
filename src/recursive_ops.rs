@@ -17,6 +17,7 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
         return Ok(());
     }
 
+
     let dir_name = dir.file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| {
@@ -26,7 +27,15 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
 
     let checksums_file_name = format!("{}.sha256", dir_name);
     let output_file = dir.join(&checksums_file_name);
-    let mut checksums_file = File::create(&output_file)?;
+    
+    let mut checksums_file = match File::create(&output_file) { 
+        Ok(file) => file,
+        Err(e) => { 
+            eprintln!("{} could not create checksum file: {}", "Error:".truecolor(173, 127, 172), e);
+            std::process::exit(3);
+        },
+    };
+
 
     let loading_message = format!("Computing checksums for directory '{}'", dir_name);
     let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
@@ -87,7 +96,7 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         Ok(content) => content,
         Err(_e) => std::process::exit(3)
     };
-    
+
     let expected_files = parse_sha256_file(&sha256_content.to_lowercase());
 
     let loading_message = format!("Verifying checksums for directory '{}'", dir_name);
