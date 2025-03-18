@@ -8,8 +8,9 @@ use colored::*;
 use spinoff::{Spinner, spinners, Color, Streams};
 use std::io;
 
-use crate::{strip_prefix, read_sha256_file, clear_spinner_and_flush};
 use crate::hasher::compute_hash_helper;
+use crate::read::{read_sha256_file};
+use crate::utils::{strip_prefix, clear_spinner_and_flush};
 
 pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
     if !dir.is_dir() {
@@ -27,10 +28,10 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
 
     let checksums_file_name = format!("{}.sha256", dir_name);
     let output_file = dir.join(&checksums_file_name);
-    
-    let mut checksums_file = match File::create(&output_file) { 
+
+    let mut checksums_file = match File::create(&output_file) {
         Ok(file) => file,
-        Err(e) => { 
+        Err(e) => {
             eprintln!("{} could not create checksum file: {}", "Error:".truecolor(173, 127, 172), e);
             std::process::exit(3);
         },

@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use colored::Colorize;
 use sha2::{Digest, Sha256};
 use spinoff::{spinners, Color, Spinner, Streams};
-use crate::clear_spinner_and_flush;
+
+use crate::utils::{clear_spinner_and_flush};
 
 pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, spinner_switch: bool) -> Result<String, Box<dyn std::error::Error>> {
     let mut spinner_opt = if spinner_switch {
@@ -53,11 +54,8 @@ pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, spinner_switch: 
 }
 
 pub fn compute_hash_helper(filepath: &PathBuf, filename: &str, spinner_switch: bool) -> String {
-    
     match compute_sha_for_file(filepath, filename, spinner_switch) {
         Ok(computed_hash) => computed_hash,
-        Err(_e) => {
-            std::process::exit(1);
-        }
+        Err(_e) => { std::process::exit(1); }
     }
 }

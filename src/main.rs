@@ -1,20 +1,20 @@
-use std::io::{self, BufRead, BufReader, Read, Write};
-use std::fs;
+use crate::utils::parse_path;
+use clap::{crate_authors, crate_description, crate_name, crate_version, Parser, Subcommand};
+use colored::*;
+use sha2::{Digest, Sha256};
 use std::env::current_dir;
 use std::fs::File;
-use sha2::{Sha256, Digest};
-use colored::*;
-use spinoff::Spinner;
-use std::path::{PathBuf};
+use std::io::Write;
 use std::path::Path;
-use regex_lite::Regex;
-use encoding_rs::UTF_16LE;
-use clap::{Parser, Subcommand, crate_authors, crate_version, crate_name, crate_description};
+use std::path::PathBuf;
 mod recursive_ops;
 mod hasher;
+mod read;
+mod utils;
 
 use hasher::compute_hash_helper;
-use recursive_ops::{write_recursive, check_recursive};
+use recursive_ops::{check_recursive, write_recursive};
+use utils::{is_file_sha, shorten_str, return_checksum, highlight_differences};
 
 #[derive(Parser)]
 
@@ -198,29 +198,28 @@ fn main() {
 
                     match (file_1_result, file_2_result) {
                         (true, true) => {
-                            let checksum_1 = compute_hash_helper(&first_file_path, first_filename, true);
-                            let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
-                            println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
+                            let checksum_1 = compute_hash_helper(&first_file_path, &shortened_first_filename, true);
+                            let checksum_2 = compute_hash_helper(&second_file_path, &shortened_second_filename, true);
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
 
                         (true, false) => {
-                            let checksum_2 = compute_hash_helper(&second_file_path, second_filename, true);
+                            let checksum_2 = compute_hash_helper(&second_file_path, &shortened_second_filename, true);
                             let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &checksum_2);
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename);
                         }
 
                         (false, true) => {
-                            let checksum_1 = compute_hash_helper(&first_file_path, first_filename, true);
+                            let checksum_1 = compute_hash_helper(&first_file_path, &shortened_first_filename, true);
                             let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
 
                         (false, false) => {
-                            let checksum_1 = compute_hash_helper(&first_file_path, first_filename, true);
-                            let checksum_2 = compute_hash_helper(&second_file_path, second_filename, true);
+                            let checksum_1 = compute_hash_helper(&first_file_path, &shortened_first_filename, true);
+                            let checksum_2 = compute_hash_helper(&second_file_path, &shortened_second_filename, true);
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
                     }
@@ -258,211 +257,6 @@ fn main() {
     }
 }
 
-fn read_sha256_file(file_path: &PathBuf, filename: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let format_error = |e: &dyn std::fmt::Display, message: &str| {
-        eprintln!(
-            "{} {} '{}': {}",
-            "Error:".truecolor(173, 127, 172),
-            message,
-            filename.bold().white(),
-            e
-        );
-    };
-
-    #[derive(Debug)]
-    enum FileContentError {
-        Empty,
-        TooLarge,
-        DecodingFailed,
-    }
-
-    impl std::fmt::Display for FileContentError {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            match self {
-                Self::Empty => write!(f, "file is empty"),
-                Self::TooLarge => write!(f, "file exceeds maximum size (5MB)"),
-                Self::DecodingFailed => write!(f, "failed to decode file content"),
-            }
-        }
-    }
-
-    impl std::error::Error for FileContentError {}
-
-    let file_metadata = match fs::metadata(file_path) {
-        Ok(metadata) => metadata,
-        Err(e) => {
-            format_error(&e, "failed to access metadata for");
-            return Err(Box::new(e));
-        }
-    };
-
-    if file_metadata.len() > 5 * 1024 * 1024 {  // 5 MB
-        let error = FileContentError::TooLarge;
-        format_error(&error, "cannot process");
-        return Err(Box::new(error));
-    }
-
-    let mut file = match File::open(file_path) {
-        Ok(file) => file,
-        Err(e) => {
-            format_error(&e, "failed to open");
-            return Err(Box::new(e));
-        }
-    };
-
-    let mut raw_content = Vec::new();
-    match file.read_to_end(&mut raw_content) {
-        Ok(_) => {},
-        Err(e) => {
-            format_error(&e, "failed to read content from");
-            return Err(Box::new(e));
-        }
-    }
-
-    if raw_content.is_empty() {
-        let error = FileContentError::Empty;
-        format_error(&error, "cannot process");
-        return Err(Box::new(error));
-    }
-
-    if let Ok(utf8_content) = std::str::from_utf8(&raw_content) {
-        return Ok(utf8_content.to_string());
-    }
-
-    let (utf16_decoded, _, had_errors) = UTF_16LE.decode(&raw_content);
-    if had_errors {
-        let error = FileContentError::DecodingFailed;
-        format_error(&error, "failed to decode");
-        return Err(Box::new(error));
-    }
-
-    Ok(utf16_decoded.to_string())
-}
-
-fn is_file_sha(filepath: &PathBuf) -> bool {
-    let metadata = match fs::metadata(filepath) {
-        Ok(metadata) => metadata,
-        Err(_) => return false,
-    };
-
-    if metadata.len() > 5 * 1024 * 1024 || metadata.len() == 0 {
-        return false;
-    }
-
-    let ext = filepath.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase());
-
-    if !matches!(ext.as_deref(), Some("sha256") | Some("sha") | Some("txt")) {
-        return false;
-    }
-
-    let file = match File::open(filepath) {
-        Ok(file) => file,
-        Err(_) => return false,
-    };
-
-    let mut reader = BufReader::new(file);
-    let mut valid_hash_found = false;
-    
-    for _ in 0..10 {
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(0) => break,
-            Ok(_) => {
-                let mut parts = line.split_whitespace();
-                if let Some(hash_part) = parts.next() {
-                    if hash_part.chars().all(|c| c.is_ascii_hexdigit()) {
-                        let hash_len = hash_part.len();
-                        if hash_len == 40 || hash_len == 64 || hash_len == 128 {
-                            valid_hash_found = true;
-                            break;
-                        }
-                    }
-                }
-            },
-            Err(_) => return false,
-        }
-    }
-
-    valid_hash_found
-}
-
-fn return_checksum(file_path: &PathBuf, shortened_filename: &str, checksum_1: &str) -> String {
-    let content = match read_sha256_file(file_path, shortened_filename) {
-        Ok(content) => content.to_string(),
-        Err(_) => return String::new()
-    };
-
-    let re = match Regex::new(&format!(
-        r"\b{}[0-9a-fA-F]{{{}}}\b",
-        regex_lite::escape(checksum_1),
-        64 - checksum_1.len()
-    )) {
-        Ok(re) => re,
-        Err(_) => return String::new()
-    };
-
-    if let Some(mat) = re.find(&content) {
-        return mat.as_str().trim().to_string();
-    }
-
-    let re_any = Regex::new(r"\b[0-9a-fA-F]{64}\b").unwrap();
-    if let Some(mat) = re_any.find(&content) {
-        return mat.as_str().trim().to_string();
-    }
-
-    String::new()
-}
-
-fn highlight_differences(a: &str, b: &str) -> String {
-    let max_len = std::cmp::max(a.len(), b.len());
-    let a_padded = format!("{:width$}", a, width = max_len);
-    let b_padded = format!("{:width$}", b, width = max_len);
-    let mut squiggles = String::new();
-    for (char_a, char_b) in a_padded.chars().zip(b_padded.chars()) {
-        if char_a == char_b {
-            squiggles.push(' ');
-        } else {
-            squiggles.push_str(&"~".truecolor(173, 127, 172).to_string());
-        }
-    }
-
-    squiggles
-}
-
-fn clear_spinner_and_flush(spinner: &mut Spinner) {
-    spinner.clear();
-    io::stdout().flush().unwrap();
-}
-
-fn strip_prefix<'a>(full_path: &'a Path, base_path: &Path) -> &'a Path {
-    full_path.strip_prefix(base_path).unwrap_or(full_path)
-}
-
-fn shorten_str(file_name: &str, max_len: usize) -> String {
-    if file_name.len() > max_len {
-        let start = &file_name[..9];
-        let end = &file_name[file_name.len() - 9..];
-        format!("{}...{}", start, end)
-    } else {
-        file_name.to_string()
-    }
-}
-
-fn parse_path(s: &str) -> Result<PathBuf, String> {
-    let clean_str = s.trim_matches('"').trim_matches('\'');
-    if clean_str.len() == 64 && clean_str.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Ok(PathBuf::from(clean_str));
-    }
-    let path_buf = PathBuf::from(clean_str);
-    if !path_buf.exists() {
-        eprintln!("{} no file found in '{}'", "Error:".truecolor(173, 127, 172), clean_str);
-        std::process::exit(2);
-    }
-
-    Ok(path_buf)
-}
 
  fn output_result(checksum_1: &str, checksum_2: &str, padded_filename_1: &str, padded_filename_2: &str) {
      let lower_checksum_1 = &checksum_1.to_lowercase();
