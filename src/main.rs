@@ -268,7 +268,7 @@ fn main() {
      }
      println!("{} : '{}'", lower_checksum_2, padded_filename_2.trim());
      if lower_checksum_1 == lower_checksum_2 {
-         println!("{} {}", "Status:".truecolor(119, 193, 178), "[ OK ]".bold());
+         println!("{} {}", "Status:".truecolor(119, 193, 178), "[ ok ]".bold());
      } else {
          println!("{} {}", "Status:".truecolor(173, 127, 172), "[ !! ]".bold());
      }
