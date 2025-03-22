@@ -262,11 +262,11 @@ fn main() {
      let lower_checksum_1 = &checksum_1.to_lowercase();
      let lower_checksum_2 = &checksum_2.to_lowercase();
      let squiggles = highlight_differences(lower_checksum_1, lower_checksum_2);
-     println!("{} : '{}'", lower_checksum_1.white(), padded_filename_1.trim());
+     println!("{} : '{}'", lower_checksum_1, padded_filename_1.trim());
      if squiggles.contains('~') {
-         println!("{}", squiggles.bold())
+         println!("{}", squiggles)
      }
-     println!("{} : '{}'", lower_checksum_2.white(), padded_filename_2.trim());
+     println!("{} : '{}'", lower_checksum_2, padded_filename_2.trim());
      if lower_checksum_1 == lower_checksum_2 {
          println!("{} {}", "Status:".truecolor(119, 193, 178), "[ OK ]".bold());
      } else {
