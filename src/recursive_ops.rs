@@ -21,10 +21,7 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
 
     let dir_name = dir.file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| {
-            eprintln!("{} directory has no file name", "Error:".truecolor(173, 127, 172));
-            io::Error::new(io::ErrorKind::InvalidInput, "Invalid directory name")
-        })?;
+        .unwrap_or("checksums");
 
     let checksums_file_name = format!("{}.sha256", dir_name);
     let output_file = dir.join(&checksums_file_name);
@@ -37,8 +34,11 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
         },
     };
 
-
-    let loading_message = format!("Computing checksums for directory '{}'", dir_name);
+    let loading_message = if dir_name == "checksums" {
+        "Computing checksums for directory".to_string()
+    } else {
+        format!("Computing checksums for directory '{}'", dir_name)
+    };
     let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
 
     let files: Vec<_> = WalkDir::new(&dir)
@@ -77,13 +77,9 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         return Ok(());
     }
 
-    let dir_name = match dir.file_name().and_then(|n| n.to_str()) {
-        Some(name) => name,
-        None => {
-            eprintln!("{} directory has no file name", "Error:".truecolor(173, 127, 172));
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid directory name"));
-        }
-    };
+    let dir_name = dir.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("checksums");
 
     let checksums_file_name = format!("{}.sha256", dir_name);
     let checksums_path = dir.join(&checksums_file_name);
@@ -100,7 +96,11 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
 
     let expected_files = parse_sha256_file(&sha256_content.to_lowercase());
 
-    let loading_message = format!("Verifying checksums for directory '{}'", dir_name);
+    let loading_message = if dir_name == "checksums" {
+        "Verifying checksums for directory".to_string()
+    } else {
+        format!("Verifying checksums for directory '{}'", dir_name)
+    };
     let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
 
     let files: Vec<_> = WalkDir::new(&dir)
