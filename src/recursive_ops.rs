@@ -55,7 +55,10 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
             let path = entry.path();
             let result = compute_hash_helper(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
             let relative_path = strip_prefix(path, &dir);
-            (result, relative_path.to_string_lossy().into_owned())
+            let relative_path_str = relative_path.to_string_lossy().to_string();
+            let relative_path_lower = relative_path_str.to_ascii_lowercase();
+            let normalized_path_lower = relative_path_lower.replace('\\', "/");
+            (result, normalized_path_lower)
         })
         .collect();
 
