@@ -82,10 +82,17 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
 
     let dir_name = dir.file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or("checksums");
+        .unwrap();
 
-    let checksums_file_name = format!("{}.sha256", dir_name);
-    let checksums_path = dir.join(&checksums_file_name);
+    let filename_from_dir = format!("{}.sha256", dir_name);
+    let path_from_dir = dir.join(&filename_from_dir);
+    let fallback_filename = "checksums.sha256";
+
+    let (checksums_path, checksums_file_name) = if path_from_dir.exists() {
+        (path_from_dir, filename_from_dir)
+    } else {
+        (dir.join(fallback_filename), fallback_filename.to_string())
+    };
 
     if !checksums_path.exists() {
         eprintln!("{} file '{}' is missing", "Error:".truecolor(173, 127, 172), checksums_file_name);
