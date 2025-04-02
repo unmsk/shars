@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use colored::Colorize;
 use regex_lite::Regex;
 use spinoff::Spinner;
-use crate::read::read_sha_helper;
+use crate::read::read_sha256_file;
 
 pub fn is_file_sha(filepath: &PathBuf) -> bool {
     let metadata = match fs::metadata(filepath) {
@@ -57,7 +57,7 @@ pub fn is_file_sha(filepath: &PathBuf) -> bool {
 }
 
 pub fn return_checksum(file_path: &PathBuf, shortened_filename: &str, checksum_1: &str) -> String {
-    let content = read_sha_helper(file_path, shortened_filename);
+    let content = read_sha256_file(file_path, shortened_filename);
     let re = match Regex::new(&format!(
         r"\b{}[0-9a-fA-F]{{{}}}\b",
         regex_lite::escape(checksum_1),
@@ -66,14 +66,17 @@ pub fn return_checksum(file_path: &PathBuf, shortened_filename: &str, checksum_1
         Ok(re) => re,
         Err(_) => return String::new()
     };
-
-    if let Some(mat) = re.find(&content) {
-        return mat.as_str().trim().to_string();
+    if let Ok(content_str) = &content {
+        if let Some(mat) = re.find(content_str) {
+            return mat.as_str().trim().to_string();
+        }
     }
-
+    
     let re_any = Regex::new(r"\b[0-9a-fA-F]{64}\b").unwrap();
-    if let Some(mat) = re_any.find(&content) {
-        return mat.as_str().trim().to_string();
+    if let Ok(content_str) = &content {
+        if let Some(mat) = re_any.find(content_str) {
+            return mat.as_str().trim().to_string();
+        }
     }
 
     String::new()

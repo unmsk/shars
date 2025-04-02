@@ -7,23 +7,24 @@ use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::utils::{clear_spinner_and_flush};
 
-pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, spinner_switch: bool) -> Result<String, Box<dyn std::error::Error>> {
-    let mut spinner_opt = if spinner_switch {
+pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, not_recursive: bool) -> Result<String, Box<dyn std::error::Error>> {
+    let mut spinner_opt = if not_recursive {
         let loading_message = format!("Loading file '{}'", filename);
         Some(Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout))
     } else {
         None
     };
-
     let mut handle_error = |e: std::io::Error, error_message: &str| -> Box<dyn std::error::Error> {
         if let Some(mut spinner) = spinner_opt.take() {
             clear_spinner_and_flush(&mut spinner);
         }
-        eprintln!("{} {} '{}': {}",
-                  "Error:".truecolor(173, 127, 172),
-                  error_message,
-                  filename.bold().white(),
-                  e);
+        if not_recursive {
+            eprintln!("{} {} '{}': {}",
+                      "Error:".truecolor(173, 127, 172),
+                      error_message,
+                      filename.bold().white(),
+                      e);
+        }
         Box::new(e)
     };
 
@@ -51,11 +52,4 @@ pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, spinner_switch: 
 
     let result = hasher.finalize();
     Ok(format!("{:x}", result))
-}
-
-pub fn compute_hash_helper(filepath: &PathBuf, filename: &str, spinner_switch: bool) -> String {
-    match compute_sha_for_file(filepath, filename, spinner_switch) {
-        Ok(computed_hash) => computed_hash,
-        Err(_e) => { std::process::exit(1); }
-    }
 }

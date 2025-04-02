@@ -85,10 +85,3 @@ pub fn read_sha256_file(file_path: &PathBuf, filename: &str) -> Result<String, B
 
     Ok(utf16_decoded.to_string())
 }
-
-pub fn read_sha_helper (file_path: &PathBuf, filename: &str) -> String {
-    match read_sha256_file(file_path, filename) {
-        Ok(sha256) => sha256,
-        Err(_e) => {std::process::exit(1);}
-    }
-}

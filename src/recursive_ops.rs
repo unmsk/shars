@@ -7,8 +7,8 @@ use rayon::prelude::*;
 use colored::*;
 use spinoff::{Spinner, spinners, Color, Streams};
 use std::io;
-
-use crate::hasher::compute_hash_helper;
+use std::sync::{Arc, Mutex};
+use crate::hasher::compute_sha_for_file;
 use crate::read::{read_sha256_file};
 use crate::utils::{strip_prefix, clear_spinner_and_flush};
 
@@ -17,7 +17,6 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
         eprintln!("{} the 'wr' command requires a directory", "Error:".truecolor(173, 127, 172));
         return Ok(());
     }
-
 
     let dir_name = dir.file_name()
         .and_then(|n| n.to_str())
@@ -50,26 +49,48 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
         })
         .collect();
 
+    let skipped_files = Arc::new(Mutex::new(Vec::new()));
+
     let results: Vec<_> = files.par_iter()
-        .map(|entry| {
+        .filter_map(|entry| {
             let path = entry.path();
-            let result = compute_hash_helper(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
             let relative_path = strip_prefix(path, &dir);
             let relative_path_str = relative_path.to_string_lossy().to_string();
             let relative_path_lower = relative_path_str.to_ascii_lowercase();
             let normalized_path_lower = relative_path_lower.replace('\\', "/");
-            (result, normalized_path_lower)
+            match compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false) {
+                Ok(hash) => {
+                    Some((hash.to_lowercase(), normalized_path_lower))
+                },
+                Err(_) => {
+                    if let Ok(mut skipped) = skipped_files.lock() {
+                        skipped.push(normalized_path_lower);
+                    }
+                    None
+                }
+            }
         })
         .collect();
 
+    clear_spinner_and_flush(&mut spinner);
     for (hash, path) in results {
         writeln!(checksums_file, "{} {}", hash, path)?;
     }
-
-    clear_spinner_and_flush(&mut spinner);
+    
     println!("{} file '{}' created and written to successfully",
              "Status:".truecolor(119, 193, 178),
              checksums_file_name.bold().white());
+
+    if let Ok(skipped) = skipped_files.lock() {
+        if !skipped.is_empty() {
+            println!("{} Skipped {} files due to checksum computation failures:",
+                     "Warning:".truecolor(173, 127, 172),
+                     skipped.len());
+            for file in skipped.iter() {
+                println!("  FAILED: {}", file);
+            }
+        }
+    }
 
     Ok(())
 }
@@ -101,16 +122,12 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
 
     let sha256_content = match read_sha256_file(&checksums_path, dir_name) {
         Ok(content) => content,
-        Err(_e) => std::process::exit(3)
+        Err(_) => return Ok(()),
     };
 
     let expected_files = parse_sha256_file(&sha256_content.to_lowercase());
 
-    let loading_message = if dir_name == "checksums" {
-        "Verifying checksums for directory".to_string()
-    } else {
-        format!("Verifying checksums for directory '{}'", dir_name)
-    };
+    let loading_message = format!("Verifying checksums for directory '{}'", dir_name);
     let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
 
     let files: Vec<_> = WalkDir::new(&dir)
@@ -123,27 +140,37 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         .collect();
 
     use rayon::prelude::*;
+    let skipped_files = Arc::new(Mutex::new(Vec::new()));
+
     let results: Vec<(FileStatus, String, String)> = files.par_iter()
-        .map(|entry| {
+        .filter_map(|entry| {
             let path = entry.path();
             let relative_path = strip_prefix(path, &dir);
             let relative_path_str = relative_path.to_string_lossy().to_string();
             let relative_path_lower = relative_path_str.to_ascii_lowercase();
             let normalized_path_lower = relative_path_lower.replace('\\', "/");
 
-            let file_hash = compute_hash_helper(&path.to_path_buf(), &checksums_file_name, false).to_lowercase();
-
-            let status = if let Some(expected_hash) = expected_files.get(&normalized_path_lower) {
-                if &file_hash == expected_hash {
-                    FileStatus::Ok
-                } else {
-                    FileStatus::Mismatched
+            match compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false) {
+                Ok(file_hash) => {
+                    let file_hash = file_hash.to_lowercase();
+                    let status = if let Some(expected_hash) = expected_files.get(&normalized_path_lower) {
+                        if &file_hash == expected_hash {
+                            FileStatus::Ok
+                        } else {
+                            FileStatus::Mismatched
+                        }
+                    } else {
+                        FileStatus::ExtraFile
+                    };
+                    Some((status, normalized_path_lower, relative_path_str))
+                },
+                Err(_) => {
+                    if let Ok(mut skipped) = skipped_files.lock() {
+                        skipped.push(relative_path_str);
+                    }
+                    None
                 }
-            } else {
-                FileStatus::ExtraFile
-            };
-
-            (status, normalized_path_lower, relative_path_str)
+            }
         })
         .collect();
 
@@ -208,8 +235,20 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
                  status_color, count_ok, total_checked + count_missing, count_mismatched, count_missing);
     }
 
+    if let Ok(skipped) = skipped_files.lock() {
+        if !skipped.is_empty() {
+            println!("{} Skipped {} files due to checksum computation failures:",
+                     "Warning:".truecolor(173, 127, 172),
+                     skipped.len());
+            for file in skipped.iter() {
+                println!("  FAILED: {}", file);
+            }
+        }
+    }
+
     Ok(())
 }
+
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 enum FileStatus {

@@ -12,7 +12,7 @@ mod hasher;
 mod read;
 mod utils;
 
-use hasher::compute_hash_helper;
+use hasher::compute_sha_for_file;
 use recursive_ops::{check_recursive, write_recursive};
 use utils::{is_file_sha, shorten_str, return_checksum, highlight_differences};
 
@@ -95,9 +95,12 @@ fn main() {
                 return;
             }
             let first_filename = filename.file_name().unwrap().to_string_lossy();
-            let computed_hash = compute_hash_helper(&filename, &first_filename, true);
+            let computed_hash = match compute_sha_for_file(&filename, &first_filename, true) {
+                Ok(computed_hash) => {computed_hash}.to_lowercase(),
+                Err(e) => {eprintln!("Error: {}", e); return;}
+            };
             let shortened_first_filename = shorten_str(&first_filename, 18);
-            println!("{} : '{}'", computed_hash.to_lowercase().bold().white(), shortened_first_filename);
+            println!("{} : '{}'", computed_hash.bold().white(), shortened_first_filename);
         }
 
         Commands::T { text } => {
@@ -115,7 +118,10 @@ fn main() {
                 return;
             }
             let first_filename = filename.file_name().unwrap().to_string_lossy();
-            let computed_hash = compute_hash_helper(&filename, &first_filename, true).to_lowercase();
+            let computed_hash = match compute_sha_for_file(&filename, &first_filename, true) {
+                Ok(computed_hash) => {computed_hash}.to_lowercase(),
+                Err(e) => {eprintln!("Error: {}", e); return;}
+            };
             let lower_computed_hash_and_filename = computed_hash + " " + &first_filename;
             let checksum_file_name = format!("{}.sha256", &first_filename);
             let sha256_file_name_raw = format!("{}.sha256", filename.to_str().unwrap());
@@ -166,7 +172,10 @@ fn main() {
                                  "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                         output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
                     } else {
-                        let checksum_2 = compute_hash_helper(&input2, &shortened_second_filename, true);
+                        let checksum_2 = match compute_sha_for_file(&input2, &shortened_second_filename, true) {
+                            Ok(checksum_2) => {checksum_2}.to_lowercase(),
+                            Err(e) => {eprintln!("Error: {}", e); return;}
+                        };
                         output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
                     }
                 },
@@ -180,7 +189,10 @@ fn main() {
                                  "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
                         output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA");
                     } else {
-                        let checksum_1 = compute_hash_helper(&input1, &shortened_first_filename, true);
+                        let checksum_1 = match compute_sha_for_file(&input1, &shortened_first_filename, true) {
+                            Ok(checksum_1) => {checksum_1}.to_lowercase(),
+                            Err(e) => {eprintln!("Error: {}", e); return;}
+                        };
                         output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA");
                     }
                 },
@@ -198,28 +210,46 @@ fn main() {
 
                     match (file_1_result, file_2_result) {
                         (true, true) => {
-                            let checksum_1 = compute_hash_helper(&first_file_path, &shortened_first_filename, true);
-                            let checksum_2 = compute_hash_helper(&second_file_path, &shortened_second_filename, true);
+                            let checksum_1 = match compute_sha_for_file(&first_file_path, &shortened_first_filename, true) {
+                                Ok(checksum_1) => {checksum_1}.to_lowercase(),
+                                Err(e) => {eprintln!("Error: {}", e); return;}
+                            };
+                            let checksum_2 = match compute_sha_for_file(&second_file_path, &shortened_second_filename, true) {
+                                Ok(checksum_2) => {checksum_2}.to_lowercase(),
+                                Err(e) => {eprintln!("Error: {}", e); return;}
+                            };
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
 
                         (true, false) => {
-                            let checksum_2 = compute_hash_helper(&second_file_path, &shortened_second_filename, true);
+                            let checksum_2 = match compute_sha_for_file(&second_file_path, &shortened_second_filename, true) {
+                                Ok(checksum_2) => {checksum_2}.to_lowercase(),
+                                Err(e) => {eprintln!("Error: {}", e); return;}
+                            };
                             let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &checksum_2);
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename);
                         }
 
                         (false, true) => {
-                            let checksum_1 = compute_hash_helper(&first_file_path, &shortened_first_filename, true);
+                            let checksum_1 = match compute_sha_for_file(&first_file_path, &shortened_first_filename, true) {
+                                Ok(checksum_1) => {checksum_1}.to_lowercase(),
+                                Err(e) => {eprintln!("Error: {}", e); return;}
+                            };
                             let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
 
                         (false, false) => {
-                            let checksum_1 = compute_hash_helper(&first_file_path, &shortened_first_filename, true);
-                            let checksum_2 = compute_hash_helper(&second_file_path, &shortened_second_filename, true);
+                            let checksum_1 = match compute_sha_for_file(&first_file_path, &shortened_first_filename, true) {
+                                Ok(checksum_1) => {checksum_1}.to_lowercase(),
+                                Err(e) => {eprintln!("Error: {}", e); return;}
+                            };
+                            let checksum_2 = match compute_sha_for_file(&second_file_path, &shortened_second_filename, true) {
+                                Ok(checksum_2) => {checksum_2}.to_lowercase(),
+                                Err(e) => {eprintln!("Error: {}", e); return;}
+                            };
                             output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
                     }
