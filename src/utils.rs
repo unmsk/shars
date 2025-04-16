@@ -1,10 +1,11 @@
-use std::{fs, io};
+use std::{fs};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use colored::Colorize;
 use regex_lite::Regex;
-use spinoff::Spinner;
+use indicatif::{ProgressBar, ProgressStyle};
 use crate::read::read_sha256_file;
 
 pub fn is_file_sha(filepath: &PathBuf) -> bool {
@@ -97,10 +98,18 @@ pub fn highlight_differences(a: &str, b: &str) -> String {
 
     squiggles
 }
+pub fn start_spinner(msg: &str) -> ProgressBar {
+    let spinner = ProgressBar::new_spinner();
 
-pub fn clear_spinner_and_flush(spinner: &mut Spinner) {
-    spinner.clear();
-    io::stdout().flush().unwrap();
+    let style = ProgressStyle::default_spinner()
+        .tick_strings(&["|", "/", "-", "\\"])
+        .template("{spinner:.white} {msg}")
+        .unwrap();
+
+    spinner.set_style(style);
+    spinner.set_message(msg.to_string());
+    spinner.enable_steady_tick(Duration::from_millis(100));
+    spinner
 }
 
 pub fn strip_prefix<'a>(full_path: &'a Path, base_path: &Path) -> &'a Path {

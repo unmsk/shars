@@ -2,28 +2,31 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use colored::Colorize;
+use indicatif::ProgressBar;
 use sha2::{Digest, Sha256};
-use spinoff::{spinners, Color, Spinner, Streams};
 
-use crate::utils::{clear_spinner_and_flush};
+use crate::utils::{start_spinner};
 
 pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, not_recursive: bool) -> Result<String, Box<dyn std::error::Error>> {
-    let mut spinner_opt = if not_recursive {
+    let mut spinner_opt: Option<ProgressBar> = if not_recursive {
         let loading_message = format!("Loading file '{}'", filename);
-        Some(Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout))
+        Some(start_spinner(&loading_message))
     } else {
         None
     };
+
     let mut handle_error = |e: std::io::Error, error_message: &str| -> Box<dyn std::error::Error> {
-        if let Some(mut spinner) = spinner_opt.take() {
-            clear_spinner_and_flush(&mut spinner);
+        if let Some(spinner) = spinner_opt.take() {
+            spinner.finish_and_clear();
         }
         if not_recursive {
-            eprintln!("{} {} '{}': {}",
-                      "Error:".truecolor(173, 127, 172),
-                      error_message,
-                      filename.bold().white(),
-                      e);
+            eprintln!(
+                "{} {} '{}': {}",
+                "Error:".truecolor(173, 127, 172),
+                error_message,
+                filename.bold().white(),
+                e
+            );
         }
         Box::new(e)
     };
@@ -46,8 +49,8 @@ pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, not_recursive: b
         hasher.update(&buffer[..bytes_read]);
     }
 
-    if let Some(mut spinner) = spinner_opt {
-        clear_spinner_and_flush(&mut spinner);
+    if let Some(spinner) = spinner_opt {
+        spinner.finish_and_clear();
     }
 
     let result = hasher.finalize();

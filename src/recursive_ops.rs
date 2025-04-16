@@ -5,12 +5,11 @@ use std::io::Write;
 use walkdir::WalkDir;
 use rayon::prelude::*;
 use colored::*;
-use spinoff::{Spinner, spinners, Color, Streams};
 use std::io;
 use std::sync::{Arc, Mutex};
 use crate::hasher::compute_sha_for_file;
 use crate::read::{read_sha256_file};
-use crate::utils::{strip_prefix, clear_spinner_and_flush};
+use crate::utils::{strip_prefix, start_spinner};
 
 pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
     if !dir.is_dir() {
@@ -38,7 +37,8 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
     } else {
         format!("Computing checksums for directory '{}'", dir_name)
     };
-    let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
+
+    let spinner = start_spinner(&loading_message);
 
     let files: Vec<_> = WalkDir::new(&dir)
         .into_iter()
@@ -72,7 +72,8 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
         })
         .collect();
 
-    clear_spinner_and_flush(&mut spinner);
+    spinner.finish_and_clear();
+
     for (hash, path) in results {
         writeln!(checksums_file, "{} {}", hash, path)?;
     }
@@ -128,7 +129,7 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
     let expected_files = parse_sha256_file(&sha256_content.to_lowercase());
 
     let loading_message = format!("Verifying checksums for directory '{}'", dir_name);
-    let mut spinner = Spinner::new_with_stream(spinners::Line, loading_message, Color::White, Streams::Stdout);
+    let spinner = start_spinner(&loading_message);
 
     let files: Vec<_> = WalkDir::new(&dir)
         .into_iter()
@@ -193,7 +194,7 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         .cloned()
         .collect();
 
-    clear_spinner_and_flush(&mut spinner);
+    spinner.finish_and_clear();
 
     let count_ok = ok_files.len();
     let count_mismatched = mismatched_files.len();
