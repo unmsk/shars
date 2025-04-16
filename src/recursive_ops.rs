@@ -111,9 +111,9 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
     let fallback_filename = "checksums.sha256";
 
     let (checksums_path, checksums_file_name) = if path_from_dir.exists() {
-        (path_from_dir, filename_from_dir)
+        (path_from_dir, &filename_from_dir)
     } else {
-        (dir.join(fallback_filename), fallback_filename.to_string())
+        (dir.join(fallback_filename), &fallback_filename.to_string())
     };
 
     if !checksums_path.exists() {
@@ -121,7 +121,7 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         return Ok(());
     }
 
-    let sha256_content = match read_sha256_file(&checksums_path, dir_name) {
+    let sha256_content = match read_sha256_file(&checksums_path, &checksums_file_name) {
         Ok(content) => content,
         Err(_) => return Ok(()),
     };
