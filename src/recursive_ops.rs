@@ -56,15 +56,15 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
             let path = entry.path();
             let relative_path = strip_prefix(path, &dir);
             let relative_path_str = relative_path.to_string_lossy().to_string();
-            let relative_path_lower = relative_path_str.to_ascii_lowercase();
-            let normalized_path_lower = relative_path_lower.replace('\\', "/");
+            let normalized_path = normalize_path(&relative_path_str);
+
             match compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false) {
                 Ok(hash) => {
-                    Some((hash.to_lowercase(), normalized_path_lower))
+                    Some((hash.to_lowercase(), normalized_path, relative_path_str))
                 },
                 Err(_) => {
                     if let Ok(mut skipped) = skipped_files.lock() {
-                        skipped.push(normalized_path_lower);
+                        skipped.push(relative_path_str);
                     }
                     None
                 }
@@ -74,10 +74,10 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
 
     spinner.finish_and_clear();
 
-    for (hash, path) in results {
-        writeln!(checksums_file, "{} {}", hash, path)?;
+    for (hash, _, original_path) in results {
+        writeln!(checksums_file, "{} {}", hash, original_path)?;
     }
-    
+
     println!("{} file '{}' created and written to successfully",
              "Status:".truecolor(119, 193, 178),
              checksums_file_name.bold().white());
@@ -101,14 +101,14 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         eprintln!("{} the 'cr' command requires a directory", "Error:".truecolor(173, 127, 172));
         return Ok(());
     }
-    
+
     let dir_name = dir.file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("checksums");
 
     let checksums_file_name = format!("{}.sha256", dir_name);
     let checksums_path = dir.join(&checksums_file_name);
-    
+
     if !checksums_path.exists() {
         eprintln!("{} file '{}' is missing", "Error:".truecolor(173, 127, 172), checksums_file_name);
         return Ok(());
@@ -119,14 +119,14 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         Err(_) => return Ok(()),
     };
 
-    let expected_files = parse_sha256_file(&sha256_content.to_lowercase());
+    let expected_files = parse_sha256_file(&sha256_content);
 
     let loading_message = if dir_name == "checksums" {
         "Computing checksums for directory".to_string()
     } else {
         format!("Computing checksums for directory '{}'", dir_name)
     };
-    
+
     let spinner = start_spinner(&loading_message);
 
     let files: Vec<_> = WalkDir::new(&dir)
@@ -141,18 +141,19 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
     use rayon::prelude::*;
     let skipped_files = Arc::new(Mutex::new(Vec::new()));
 
+    let mut actual_files_map = HashMap::new();
+
     let results: Vec<(FileStatus, String, String)> = files.par_iter()
         .filter_map(|entry| {
             let path = entry.path();
             let relative_path = strip_prefix(path, &dir);
             let relative_path_str = relative_path.to_string_lossy().to_string();
-            let relative_path_lower = relative_path_str.to_ascii_lowercase();
-            let normalized_path_lower = relative_path_lower.replace('\\', "/");
+            let normalized_path = normalize_path(&relative_path_str);
 
             match compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false) {
                 Ok(file_hash) => {
                     let file_hash = file_hash.to_lowercase();
-                    let status = if let Some(expected_hash) = expected_files.get(&normalized_path_lower) {
+                    let status = if let Some(expected_hash) = expected_files.get(&normalized_path) {
                         if &file_hash == expected_hash {
                             FileStatus::Ok
                         } else {
@@ -161,7 +162,7 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
                     } else {
                         FileStatus::ExtraFile
                     };
-                    Some((status, normalized_path_lower, relative_path_str))
+                    Some((status, normalized_path, relative_path_str))
                 },
                 Err(_) => {
                     if let Ok(mut skipped) = skipped_files.lock() {
@@ -179,7 +180,9 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
     let mut actual_file_paths = HashSet::with_capacity(results.len());
 
     for (status, normalized_path, relative_path) in results {
-        actual_file_paths.insert(normalized_path);
+        actual_file_paths.insert(normalized_path.clone());
+        actual_files_map.insert(normalized_path, relative_path.clone());
+
         match status {
             FileStatus::Ok => ok_files.push(relative_path),
             FileStatus::Mismatched => mismatched_files.push(relative_path),
@@ -273,10 +276,14 @@ fn parse_sha256_file(content: &str) -> HashMap<String, String> {
                 filepath = &filepath[1..];
             }
 
-            let normalized_path = filepath.replace('\\', "/");
-            result.insert(normalized_path.to_ascii_lowercase(), hash);
+            let normalized_path = normalize_path(filepath);
+            result.insert(normalized_path, hash);
         }
     }
 
     result
+}
+
+fn normalize_path(path: &str) -> String {
+    path.replace('\\', "/").to_ascii_lowercase()
 }
