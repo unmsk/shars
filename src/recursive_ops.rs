@@ -101,21 +101,14 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
         eprintln!("{} the 'cr' command requires a directory", "Error:".truecolor(173, 127, 172));
         return Ok(());
     }
-
+    
     let dir_name = dir.file_name()
         .and_then(|n| n.to_str())
-        .unwrap();
+        .unwrap_or("checksums");
 
-    let filename_from_dir = format!("{}.sha256", dir_name);
-    let path_from_dir = dir.join(&filename_from_dir);
-    let fallback_filename = "checksums.sha256";
-
-    let (checksums_path, checksums_file_name) = if path_from_dir.exists() {
-        (path_from_dir, &filename_from_dir)
-    } else {
-        (dir.join(fallback_filename), &fallback_filename.to_string())
-    };
-
+    let checksums_file_name = format!("{}.sha256", dir_name);
+    let checksums_path = dir.join(&checksums_file_name);
+    
     if !checksums_path.exists() {
         eprintln!("{} file '{}' is missing", "Error:".truecolor(173, 127, 172), checksums_file_name);
         return Ok(());
@@ -128,7 +121,12 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
 
     let expected_files = parse_sha256_file(&sha256_content.to_lowercase());
 
-    let loading_message = format!("Verifying checksums for directory '{}'", dir_name);
+    let loading_message = if dir_name == "checksums" {
+        "Computing checksums for directory".to_string()
+    } else {
+        format!("Computing checksums for directory '{}'", dir_name)
+    };
+    
     let spinner = start_spinner(&loading_message);
 
     let files: Vec<_> = WalkDir::new(&dir)
