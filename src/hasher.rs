@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
-use colored::Colorize;
 use indicatif::ProgressBar;
 use sha2::{Digest, Sha256};
 
@@ -9,7 +8,7 @@ use crate::utils::{start_spinner};
 use crate::error::SharsError;
 
 pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, not_recursive: bool) -> Result<String, SharsError> {
-    let mut spinner_opt: Option<ProgressBar> = if not_recursive {
+    let spinner_opt: Option<ProgressBar> = if not_recursive {
         let loading_message = format!("Loading file '{}'", filename);
         Some(start_spinner(&loading_message))
     } else {

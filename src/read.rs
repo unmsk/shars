@@ -2,7 +2,6 @@ use std::fs;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use colored::Colorize;
 use encoding_rs::UTF_16LE;
 use crate::error::SharsError;
 

@@ -5,7 +5,6 @@ use std::io::Write;
 use walkdir::WalkDir;
 use rayon::prelude::*;
 use colored::*;
-use std::io;
 use std::sync::{Arc, Mutex};
 use crate::hasher::compute_sha_for_file;
 use crate::read::{read_sha256_file};
