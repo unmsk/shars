@@ -11,13 +11,14 @@ mod recursive_ops;
 mod hasher;
 mod read;
 mod utils;
+mod error;
 
 use hasher::compute_sha_for_file;
 use recursive_ops::{check_recursive, write_recursive};
 use utils::{is_file_sha, shorten_str, return_checksum, highlight_differences};
+use error::SharsError;
 
 #[derive(Parser)]
-
 #[command(
     name = crate_name!(),
     version = crate_version!(),
@@ -85,22 +86,29 @@ enum Commands {
 }
 
 fn main() {
+    if let Err(e) = run() {
+        match e {
+            SharsError::IoError(e) => eprintln!("{} {}", "Error:".truecolor(173, 127, 172), e),
+            SharsError::InvalidPath(msg) => eprintln!("{} {}", "Error:".truecolor(173, 127, 172), msg),
+            SharsError::InvalidDirectory(msg) => eprintln!("{} {}", "Error:".truecolor(173, 127, 172), msg),
+            SharsError::InvalidFile(msg) => eprintln!("{} {}", "Error:".truecolor(173, 127, 172), msg),
+            SharsError::ChecksumError(msg) => eprintln!("{} {}", "Error:".truecolor(173, 127, 172), msg),
+        }
+    }
+}
+
+fn run() -> Result<(), SharsError> {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::S { filename } => {
             if !filename.is_file() {
-                eprintln!("{} the 's' command does not work with directories. use 'wr or 'cr' instead",
-                    "Error:".truecolor(173, 127, 172));
-                return;
+                return Err(SharsError::InvalidFile("the 's' command does not work with directories. use 'wr or 'cr' instead".to_string()));
             }
             let first_filename = filename.file_name().unwrap().to_string_lossy();
-            let computed_hash = match compute_sha_for_file(&filename, &first_filename, true) {
-                Ok(computed_hash) => {computed_hash}.to_lowercase(),
-                Err(e) => {eprintln!("Error: {}", e); return;}
-            };
+            let computed_hash = compute_sha_for_file(&filename, &first_filename, true)?;
             let shortened_first_filename = shorten_str(&first_filename, 18);
-            println!("{} : '{}'", computed_hash.bold().white(), shortened_first_filename);
+            println!("{} : '{}'", computed_hash.to_lowercase().bold().white(), shortened_first_filename);
         }
 
         Commands::T { text } => {
@@ -113,30 +121,16 @@ fn main() {
 
         Commands::W { filename } => {
             if !filename.is_file() {
-                eprintln!("{} the 'w' command does not work with directories. use 'wr' or 'cr' instead",
-                    "Error:".truecolor(173, 127, 172));
-                return;
+                return Err(SharsError::InvalidFile("the 'w' command does not work with directories. use 'wr' or 'cr' instead".to_string()));
             }
             let first_filename = filename.file_name().unwrap().to_string_lossy();
-            let computed_hash = match compute_sha_for_file(&filename, &first_filename, true) {
-                Ok(computed_hash) => {computed_hash}.to_lowercase(),
-                Err(e) => {eprintln!("Error: {}", e); return;}
-            };
-            let lower_computed_hash_and_filename = computed_hash + " " + &first_filename;
+            let computed_hash = compute_sha_for_file(&filename, &first_filename, true)?;
+            let lower_computed_hash_and_filename = computed_hash.to_lowercase() + " " + &first_filename;
             let checksum_file_name = format!("{}.sha256", &first_filename);
             let sha256_file_name_raw = format!("{}.sha256", filename.to_str().unwrap());
             
-            let mut checksum_file = match File::create(sha256_file_name_raw) {
-                Ok(file) => file,
-                Err(e) => {
-                    eprintln!("{} failed to create file '{}': {}", "Error:".truecolor(173, 127, 172), checksum_file_name, e);
-                    return;
-                }
-            };
-            if let Err(e) = checksum_file.write_all(lower_computed_hash_and_filename.as_bytes()) {
-                eprintln!("{} failed to write to file '{}': {}", "Error:".truecolor(173, 127, 172), checksum_file_name, e);
-                return;
-            }
+            let mut checksum_file = File::create(sha256_file_name_raw)?;
+            checksum_file.write_all(lower_computed_hash_and_filename.as_bytes())?;
             println!("{} file '{}' created and written to successfully", "Status:".truecolor(119, 193, 178), checksum_file_name.bold().white());
         }
 
@@ -151,9 +145,7 @@ fn main() {
 
             if (!is_checksum1 && input1.exists() && input1.is_dir()) ||
                 (!is_checksum2 && input2.exists() && input2.is_dir()) {
-                eprintln!("{} the 'c' command does not work with directories. Use 'wr' or 'cr' instead",
-                          "Error:".truecolor(173, 127, 172));
-                return;
+                return Err(SharsError::InvalidDirectory("the 'c' command does not work with directories. Use 'wr' or 'cr' instead".to_string()));
             }
 
             match (is_checksum1, is_checksum2) {
@@ -172,11 +164,8 @@ fn main() {
                                  "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                         output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
                     } else {
-                        let checksum_2 = match compute_sha_for_file(&input2, &shortened_second_filename, true) {
-                            Ok(checksum_2) => {checksum_2}.to_lowercase(),
-                            Err(e) => {eprintln!("Error: {}", e); return;}
-                        };
-                        output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
+                        let checksum_2 = compute_sha_for_file(&input2, &shortened_second_filename, true)?;
+                        output_result(&checksum_1, &checksum_2.to_lowercase(), "USER-SHA", &shortened_second_filename);
                     }
                 },
                 (false, true) => {
@@ -189,11 +178,8 @@ fn main() {
                                  "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
                         output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA");
                     } else {
-                        let checksum_1 = match compute_sha_for_file(&input1, &shortened_first_filename, true) {
-                            Ok(checksum_1) => {checksum_1}.to_lowercase(),
-                            Err(e) => {eprintln!("Error: {}", e); return;}
-                        };
-                        output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA");
+                        let checksum_1 = compute_sha_for_file(&input1, &shortened_first_filename, true)?;
+                        output_result(&checksum_1.to_lowercase(), &checksum_2, &shortened_first_filename, "USER-SHA");
                     }
                 },
                 (false, false) => {
@@ -210,47 +196,29 @@ fn main() {
 
                     match (file_1_result, file_2_result) {
                         (true, true) => {
-                            let checksum_1 = match compute_sha_for_file(&first_file_path, &shortened_first_filename, true) {
-                                Ok(checksum_1) => {checksum_1}.to_lowercase(),
-                                Err(e) => {eprintln!("Error: {}", e); return;}
-                            };
-                            let checksum_2 = match compute_sha_for_file(&second_file_path, &shortened_second_filename, true) {
-                                Ok(checksum_2) => {checksum_2}.to_lowercase(),
-                                Err(e) => {eprintln!("Error: {}", e); return;}
-                            };
-                            output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
+                            let checksum_1 = compute_sha_for_file(&first_file_path, &shortened_first_filename, true)?;
+                            let checksum_2 = compute_sha_for_file(&second_file_path, &shortened_second_filename, true)?;
+                            output_result(&checksum_1.to_lowercase(), &checksum_2.to_lowercase(), &shortened_first_filename, &shortened_second_filename)
                         }
 
                         (true, false) => {
-                            let checksum_2 = match compute_sha_for_file(&second_file_path, &shortened_second_filename, true) {
-                                Ok(checksum_2) => {checksum_2}.to_lowercase(),
-                                Err(e) => {eprintln!("Error: {}", e); return;}
-                            };
-                            let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &checksum_2);
+                            let checksum_2 = compute_sha_for_file(&second_file_path, &shortened_second_filename, true)?;
+                            let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &checksum_2.to_lowercase());
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
-                            output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename);
+                            output_result(&checksum_1, &checksum_2.to_lowercase(), &shortened_first_filename, &shortened_second_filename);
                         }
 
                         (false, true) => {
-                            let checksum_1 = match compute_sha_for_file(&first_file_path, &shortened_first_filename, true) {
-                                Ok(checksum_1) => {checksum_1}.to_lowercase(),
-                                Err(e) => {eprintln!("Error: {}", e); return;}
-                            };
-                            let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1);
+                            let checksum_1 = compute_sha_for_file(&first_file_path, &shortened_first_filename, true)?;
+                            let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1.to_lowercase());
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
-                            output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
+                            output_result(&checksum_1.to_lowercase(), &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }
 
                         (false, false) => {
-                            let checksum_1 = match compute_sha_for_file(&first_file_path, &shortened_first_filename, true) {
-                                Ok(checksum_1) => {checksum_1}.to_lowercase(),
-                                Err(e) => {eprintln!("Error: {}", e); return;}
-                            };
-                            let checksum_2 = match compute_sha_for_file(&second_file_path, &shortened_second_filename, true) {
-                                Ok(checksum_2) => {checksum_2}.to_lowercase(),
-                                Err(e) => {eprintln!("Error: {}", e); return;}
-                            };
-                            output_result(&checksum_1, &checksum_2, &shortened_first_filename, &shortened_second_filename)
+                            let checksum_1 = compute_sha_for_file(&first_file_path, &shortened_first_filename, true)?;
+                            let checksum_2 = compute_sha_for_file(&second_file_path, &shortened_second_filename, true)?;
+                            output_result(&checksum_1.to_lowercase(), &checksum_2.to_lowercase(), &shortened_first_filename, &shortened_second_filename)
                         }
                     }
                 }
@@ -259,47 +227,48 @@ fn main() {
         
         Commands::WR { directory } => {
             let dir = if directory == PathBuf::from(".") {
-                current_dir().unwrap()
+                current_dir()?
             } else {
                 directory
             };
 
-            tokio::runtime::Runtime::new()
-                .unwrap()
+            tokio::runtime::Runtime::new()?
                 .block_on(async {
-                    write_recursive(dir).await.unwrap();
-                });
+                    write_recursive(dir).await?;
+                    Ok::<(), SharsError>(())
+                })?;
         },
 
         Commands::CR { directory } => {
             let dir = if directory == PathBuf::from(".") {
-                current_dir().unwrap()
+                current_dir()?
             } else {
                 directory
             };
 
-            tokio::runtime::Runtime::new()
-                .unwrap()
+            tokio::runtime::Runtime::new()?
                 .block_on(async {
-                    check_recursive(dir).await.unwrap();
-                });
+                    check_recursive(dir).await?;
+                    Ok::<(), SharsError>(())
+                })?;
         },
     }
+
+    Ok(())
 }
 
-
- fn output_result(checksum_1: &str, checksum_2: &str, padded_filename_1: &str, padded_filename_2: &str) {
-     let lower_checksum_1 = &checksum_1.to_lowercase();
-     let lower_checksum_2 = &checksum_2.to_lowercase();
-     let squiggles = highlight_differences(lower_checksum_1, lower_checksum_2);
-     println!("{} : '{}'", lower_checksum_1, padded_filename_1.trim());
-     if squiggles.contains('~') {
-         println!("{}", squiggles)
-     }
-     println!("{} : '{}'", lower_checksum_2, padded_filename_2.trim());
-     if lower_checksum_1 == lower_checksum_2 {
-         println!("{} {}", "Status:".truecolor(119, 193, 178), "[ ok ]".bold());
-     } else {
-         println!("{} {}", "Status:".truecolor(173, 127, 172), "[ !! ]".bold());
-     }
- }
+fn output_result(checksum_1: &str, checksum_2: &str, padded_filename_1: &str, padded_filename_2: &str) {
+    let lower_checksum_1 = &checksum_1.to_lowercase();
+    let lower_checksum_2 = &checksum_2.to_lowercase();
+    let squiggles = highlight_differences(lower_checksum_1, lower_checksum_2);
+    println!("{} : '{}'", lower_checksum_1, padded_filename_1.trim());
+    if squiggles.contains('~') {
+        println!("{}", squiggles)
+    }
+    println!("{} : '{}'", lower_checksum_2, padded_filename_2.trim());
+    if lower_checksum_1 == lower_checksum_2 {
+        println!("{} {}", "Status:".truecolor(119, 193, 178), "[ ok ]".bold());
+    } else {
+        println!("{} {}", "Status:".truecolor(173, 127, 172), "[ !! ]".bold());
+    }
+}

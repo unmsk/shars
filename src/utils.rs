@@ -7,6 +7,7 @@ use colored::Colorize;
 use regex_lite::Regex;
 use indicatif::{ProgressBar, ProgressStyle};
 use crate::read::read_sha256_file;
+use crate::error::SharsError;
 
 pub fn is_file_sha(filepath: &PathBuf) -> bool {
     let metadata = match fs::metadata(filepath) {
@@ -98,6 +99,7 @@ pub fn highlight_differences(a: &str, b: &str) -> String {
 
     squiggles
 }
+
 pub fn start_spinner(msg: &str) -> ProgressBar {
     let spinner = ProgressBar::new_spinner();
 
@@ -126,15 +128,14 @@ pub fn shorten_str(file_name: &str, max_len: usize) -> String {
     }
 }
 
-pub fn parse_path(s: &str) -> Result<PathBuf, String> {
+pub fn parse_path(s: &str) -> Result<PathBuf, SharsError> {
     let clean_str = s.trim_matches('"').trim_matches('\'');
     if clean_str.len() == 64 && clean_str.chars().all(|c| c.is_ascii_hexdigit()) {
         return Ok(PathBuf::from(clean_str));
     }
     let path_buf = PathBuf::from(clean_str);
     if !path_buf.exists() {
-        eprintln!("{} file '{}' not found", "Error:".truecolor(173, 127, 172), clean_str);
-        std::process::exit(2);
+        return Err(SharsError::InvalidPath(format!("file '{}' not found", clean_str)));
     }
 
     Ok(path_buf)

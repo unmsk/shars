@@ -10,11 +10,11 @@ use std::sync::{Arc, Mutex};
 use crate::hasher::compute_sha_for_file;
 use crate::read::{read_sha256_file};
 use crate::utils::{strip_prefix, start_spinner};
+use crate::error::SharsError;
 
-pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
+pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
     if !dir.is_dir() {
-        eprintln!("{} the 'wr' command requires a directory", "Error:".truecolor(173, 127, 172));
-        return Ok(());
+        return Err(SharsError::InvalidDirectory("the 'wr' command requires a directory".to_string()));
     }
 
     let dir_name = dir.file_name()
@@ -24,13 +24,7 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
     let checksums_file_name = format!("{}.sha256", dir_name);
     let output_file = dir.join(&checksums_file_name);
 
-    let mut checksums_file = match File::create(&output_file) {
-        Ok(file) => file,
-        Err(e) => {
-            eprintln!("{} could not create checksum file: {}", "Error:".truecolor(173, 127, 172), e);
-            std::process::exit(3);
-        },
-    };
+    let mut checksums_file = File::create(&output_file)?;
 
     let loading_message = if dir_name == "checksums" {
         "Computing checksums for directory".to_string()
@@ -96,10 +90,9 @@ pub async fn write_recursive(dir: PathBuf) -> io::Result<()> {
     Ok(())
 }
 
-pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
+pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
     if !dir.is_dir() {
-        eprintln!("{} the 'cr' command requires a directory", "Error:".truecolor(173, 127, 172));
-        return Ok(());
+        return Err(SharsError::InvalidDirectory("the 'cr' command requires a directory".to_string()));
     }
 
     let dir_name = dir.file_name()
@@ -110,14 +103,10 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
     let checksums_path = dir.join(&checksums_file_name);
 
     if !checksums_path.exists() {
-        eprintln!("{} file '{}' is missing", "Error:".truecolor(173, 127, 172), checksums_file_name);
-        return Ok(());
+        return Err(SharsError::InvalidFile(format!("file '{}' is missing", checksums_file_name)));
     }
 
-    let sha256_content = match read_sha256_file(&checksums_path, &checksums_file_name) {
-        Ok(content) => content,
-        Err(_) => return Ok(()),
-    };
+    let sha256_content = read_sha256_file(&checksums_path, &checksums_file_name)?;
 
     let expected_files = parse_sha256_file(&sha256_content);
 
@@ -250,7 +239,6 @@ pub async fn check_recursive(dir: PathBuf) -> io::Result<()> {
 
     Ok(())
 }
-
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 enum FileStatus {
