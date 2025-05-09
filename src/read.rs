@@ -6,6 +6,8 @@ use colored::Colorize;
 use encoding_rs::UTF_16LE;
 use crate::error::SharsError;
 
+const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5 MB
+
 pub fn read_sha256_file(file_path: &PathBuf, filename: &str) -> Result<String, SharsError> {
     #[derive(Debug)]
     enum FileContentError {
@@ -28,7 +30,7 @@ pub fn read_sha256_file(file_path: &PathBuf, filename: &str) -> Result<String, S
 
     let file_metadata = fs::metadata(file_path)?;
 
-    if file_metadata.len() > 5 * 1024 * 1024 {  // 5 MB
+    if file_metadata.len() > MAX_FILE_SIZE {
         return Err(SharsError::ChecksumError(format!("cannot process '{}': file exceeds maximum size (5MB)", filename)));
     }
 
