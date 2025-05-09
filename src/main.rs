@@ -86,7 +86,7 @@ enum Commands {
 }
 
 fn main() {
-    if let Err(e) = run() {
+    if let Err(e) = run(Cli::parse()) {
         match e {
             SharsError::IoError(e) => eprintln!("{} {}", "Error:".truecolor(173, 127, 172), e),
             SharsError::InvalidPath(msg) => eprintln!("{} {}", "Error:".truecolor(173, 127, 172), msg),
@@ -97,9 +97,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<(), SharsError> {
-    let cli = Cli::parse();
-
+fn run(cli: Cli) -> Result<(), SharsError> {
     match cli.command {
         Commands::S { filename } => {
             if !filename.is_file() {
@@ -126,12 +124,11 @@ fn run() -> Result<(), SharsError> {
             let first_filename = filename.file_name().unwrap().to_string_lossy();
             let computed_hash = compute_sha_for_file(&filename, &first_filename, true)?;
             let lower_computed_hash_and_filename = computed_hash.to_lowercase() + " " + &first_filename;
-            let checksum_file_name = format!("{}.sha256", &first_filename);
-            let sha256_file_name_raw = format!("{}.sha256", filename.to_str().unwrap());
-            
-            let mut checksum_file = File::create(sha256_file_name_raw)?;
+            let checksum_file_path = filename.with_extension("sha256");
+            let checksum_file_name = checksum_file_path.file_name().unwrap().to_string_lossy();
+            let mut checksum_file = File::create(&checksum_file_path)?;
             checksum_file.write_all(lower_computed_hash_and_filename.as_bytes())?;
-            println!("{} file '{}' created and written to successfully", "Status:".truecolor(119, 193, 178), checksum_file_name.bold().white());
+            println!("{} file '{}' created and written to successfully", "Status:".truecolor(119, 193, 178), &checksum_file_name.bold().white());
         }
 
         Commands::C { input1, input2 } => {
