@@ -1,6 +1,6 @@
 use std::{fs};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use colored::Colorize;
@@ -8,6 +8,9 @@ use regex_lite::Regex;
 use indicatif::{ProgressBar, ProgressStyle};
 use crate::read::read_sha256_file;
 use crate::error::SharsError;
+use encoding_rs::UTF_16LE;
+
+const READ_BUFFER_SIZE: usize = 4096; // 4 KB
 
 pub fn is_file_sha(filepath: &PathBuf) -> bool {
     let metadata = match fs::metadata(filepath) {
@@ -27,35 +30,47 @@ pub fn is_file_sha(filepath: &PathBuf) -> bool {
         return false;
     }
 
-    let file = match File::open(filepath) {
+    let mut file = match File::open(filepath) {
         Ok(file) => file,
         Err(_) => return false,
     };
 
-    let mut reader = BufReader::new(file);
-    let mut valid_hash_found = false;
-
-    for _ in 0..10 {
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(0) => break,
-            Ok(_) => {
-                let mut parts = line.split_whitespace();
-                if let Some(hash_part) = parts.next() {
-                    if hash_part.chars().all(|c| c.is_ascii_hexdigit()) {
-                        let hash_len = hash_part.len();
-                        if hash_len == 40 || hash_len == 64 || hash_len == 128 {
-                            valid_hash_found = true;
-                            break;
-                        }
-                    }
-                }
-            },
+    let mut bom = [0u8; 2];
+    if file.read_exact(&mut bom).is_ok() && bom[0] == 0xFF && bom[1] == 0xFE {
+        let mut buffer = Vec::new();
+        if file.read_to_end(&mut buffer).is_err() {
+            return false;
+        }
+        let (utf16_decoded, _, had_errors) = UTF_16LE.decode(&buffer);
+        if had_errors {
+            return false;
+        }
+        let content = utf16_decoded.into_owned();
+        let sha256_regex = Regex::new(r"(?m)^[0-9a-fA-F]{64}\s+").unwrap();
+        
+        for line in content.lines().take(10) {
+            if sha256_regex.is_match(line) {
+                return true;
+            }
+        }
+    } else {
+        let file = match File::open(filepath) {
+            Ok(file) => file,
             Err(_) => return false,
+        };
+        let reader = BufReader::new(file);
+        let sha256_regex = Regex::new(r"^[0-9a-fA-F]{64}\s+").unwrap();
+        
+        for line in reader.lines().take(10) {
+            if let Ok(line) = line {
+                if sha256_regex.is_match(&line) {
+                    return true;
+                }
+            }
         }
     }
 
-    valid_hash_found
+    false
 }
 
 pub fn return_checksum(file_path: &PathBuf, shortened_filename: &str, checksum_1: &str) -> String {
