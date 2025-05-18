@@ -1,5 +1,3 @@
-use crate::utils::parse_path;
-use clap::{crate_authors, crate_description, crate_name, crate_version, Parser, Subcommand};
 use colored::*;
 use sha2::{Digest, Sha256};
 use std::env::current_dir;
@@ -7,83 +5,20 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use clap::Parser;
+
 mod recursive_ops;
 mod hasher;
 mod read;
 mod utils;
 mod error;
+mod cli;
 
 use hasher::compute_sha_for_file;
 use recursive_ops::{check_recursive, write_recursive};
 use utils::{is_file_sha, shorten_str, return_checksum, highlight_differences};
 use error::SharsError;
-
-#[derive(Parser)]
-#[command(
-    name = crate_name!(),
-    version = crate_version!(),
-    about = crate_description!(),
-    long_about = None,
-    author = crate_authors!()
-)]
-#[command(help_template = "\
-{name} {version}
-Author: {author}
-
-{about}
-
-\x1b[4mUsage:\x1b[0m {usage}
-
-{all-args}
-")]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    #[command(about = "Creates a checksum of a given file")]
-    S {
-        #[arg(value_parser = parse_path)]
-        filename: PathBuf,
-    },
-
-    #[command(about = "Creates a checksum of a given text string")]
-    T {
-        text: String,
-    },
-
-    #[command(about = "Compares two inputs (files or checksums)")]
-    C {
-        #[arg(help = "File or checksum")]
-        #[arg(value_parser = parse_path)]
-        input1: PathBuf,
-        #[arg(help = "File or checksum")]
-        #[arg(value_parser = parse_path)]
-        input2: PathBuf,
-    },
-
-    #[command(about = "Writes a file's checksum to a SHA file")]
-    W {
-        #[arg(value_parser = parse_path)]
-        filename: PathBuf,
-    },
-
-    #[command(about = "Creates a SHA file containing the checksums of all files in a directory")]
-    WR {
-        #[arg(default_value = ".")]
-        #[arg(value_parser = parse_path)]
-        directory: PathBuf,
-    },
-
-    #[command(about = "Verifies all files in a directory against a SHA file")]
-    CR {
-        #[arg(default_value = ".")]
-        #[arg(value_parser = parse_path)]
-        directory: PathBuf,
-    },
-}
+use cli::{Cli, Commands};
 
 fn main() {
     if let Err(e) = run(Cli::parse()) {
