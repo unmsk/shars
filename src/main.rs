@@ -91,7 +91,7 @@ fn run(cli: Cli) -> Result<(), SharsError> {
                     let second_filename = input2.file_name().unwrap().to_str().unwrap();
                     let shortened_second_filename = shorten_str(second_filename, 18);
                     if is_file_sha(&input2) {
-                        let checksum_2 = return_checksum(&input2, &shortened_second_filename, &checksum_1);
+                        let checksum_2 = return_checksum(&input2, &shortened_second_filename, &checksum_1)?;
                         println!("{} shars extracted checksum from file '{}'",
                                  "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                         output_result(&checksum_1, &checksum_2, "USER-SHA", &shortened_second_filename);
@@ -105,7 +105,7 @@ fn run(cli: Cli) -> Result<(), SharsError> {
                     let first_filename = input1.file_name().unwrap().to_str().unwrap();
                     let shortened_first_filename = shorten_str(first_filename, 18);
                     if is_file_sha(&input1) {
-                        let checksum_1 = return_checksum(&input1, &shortened_first_filename, &checksum_2);
+                        let checksum_1 = return_checksum(&input1, &shortened_first_filename, &checksum_2)?;
                         println!("{} shars extracted checksum from file '{}'",
                                  "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
                         output_result(&checksum_1, &checksum_2, &shortened_first_filename, "USER-SHA");
@@ -135,14 +135,14 @@ fn run(cli: Cli) -> Result<(), SharsError> {
 
                         (true, false) => {
                             let checksum_2 = compute_sha_for_file(&second_file_path, &shortened_second_filename, true)?;
-                            let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &checksum_2.to_lowercase());
+                            let checksum_1 = return_checksum(&first_file_path, &shortened_first_filename, &checksum_2.to_lowercase())?;
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_first_filename.bold().white());
                             output_result(&checksum_1, &checksum_2.to_lowercase(), &shortened_first_filename, &shortened_second_filename);
                         }
 
                         (false, true) => {
                             let checksum_1 = compute_sha_for_file(&first_file_path, &shortened_first_filename, true)?;
-                            let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1.to_lowercase());
+                            let checksum_2 = return_checksum(&second_file_path, &shortened_second_filename, &checksum_1.to_lowercase())?;
                             println!("{} shars extracted checksum from file '{}'", "Warning:".truecolor(119, 193, 178), shortened_second_filename.bold().white());
                             output_result(&checksum_1.to_lowercase(), &checksum_2, &shortened_first_filename, &shortened_second_filename)
                         }

@@ -73,30 +73,26 @@ pub fn is_file_sha(filepath: &PathBuf) -> bool {
     false
 }
 
-pub fn return_checksum(file_path: &PathBuf, shortened_filename: &str, checksum_1: &str) -> String {
-    let content = read_sha256_file(file_path, shortened_filename);
-    let re = match Regex::new(&format!(
+pub fn return_checksum(file_path: &PathBuf, shortened_filename: &str, checksum_1: &str) -> Result<String, SharsError> {
+    let content = read_sha256_file(file_path, shortened_filename)?;
+    let re = Regex::new(&format!(
         r"\b{}[0-9a-fA-F]{{{}}}\b",
         regex_lite::escape(checksum_1),
         64 - checksum_1.len()
-    )) {
-        Ok(re) => re,
-        Err(_) => return String::new()
-    };
-    if let Ok(content_str) = &content {
-        if let Some(mat) = re.find(content_str) {
-            return mat.as_str().trim().to_string();
-        }
+    )).map_err(|e| SharsError::ChecksumError(format!("Failed to create regex pattern: {}", e)))?;
+
+    if let Some(mat) = re.find(&content) {
+        return Ok(mat.as_str().trim().to_string());
     }
     
-    let re_any = Regex::new(r"\b[0-9a-fA-F]{64}\b").unwrap();
-    if let Ok(content_str) = &content {
-        if let Some(mat) = re_any.find(content_str) {
-            return mat.as_str().trim().to_string();
-        }
+    let re_any = Regex::new(r"\b[0-9a-fA-F]{64}\b")
+        .map_err(|e| SharsError::ChecksumError(format!("Failed to create regex pattern: {}", e)))?;
+    
+    if let Some(mat) = re_any.find(&content) {
+        return Ok(mat.as_str().trim().to_string());
     }
 
-    String::new()
+    Err(SharsError::ChecksumError("No valid checksum found in file".to_string()))
 }
 
 pub fn highlight_differences(a: &str, b: &str) -> String {
