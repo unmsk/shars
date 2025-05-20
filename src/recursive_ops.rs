@@ -31,7 +31,7 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
         format!("Computing checksums for directory '{}'", dir_name)
     };
 
-    let spinner = start_spinner(&loading_message);
+    let pb = start_spinner(&loading_message);
 
     let files: Vec<_> = WalkDir::new(&dir)
         .into_iter()
@@ -42,6 +42,12 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
         })
         .collect();
 
+    let total_bytes: u64 = files.iter()
+        .filter_map(|entry| entry.metadata().ok().map(|m| m.len()))
+        .sum();
+
+    pb.set_length(total_bytes);
+    let processed_bytes = Arc::new(Mutex::new(0));
     let skipped_files = Arc::new(Mutex::new(Vec::new()));
 
     let results: Vec<_> = files.par_iter()
@@ -50,14 +56,23 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
             let relative_path = strip_prefix(path, &dir);
             let relative_path_str = relative_path.to_string_lossy().to_string();
             let normalized_path = normalize_path(&relative_path_str);
+            let file_size = entry.metadata().ok().map(|m| m.len()).unwrap_or(0);
 
             match compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false) {
                 Ok(hash) => {
+                    if let Ok(mut processed) = processed_bytes.lock() {
+                        *processed += file_size;
+                        pb.set_position(*processed);
+                    }
                     Some((hash.to_lowercase(), normalized_path, relative_path_str))
                 },
                 Err(_) => {
                     if let Ok(mut skipped) = skipped_files.lock() {
                         skipped.push(relative_path_str);
+                    }
+                    if let Ok(mut processed) = processed_bytes.lock() {
+                        *processed += file_size;
+                        pb.set_position(*processed);
                     }
                     None
                 }
@@ -65,7 +80,7 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
         })
         .collect();
 
-    spinner.finish_and_clear();
+    pb.finish_and_clear();
 
     for (hash, _, original_path) in results {
         writeln!(checksums_file, "{} {}", hash, original_path)?;
@@ -115,7 +130,7 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
         format!("Computing checksums for directory '{}'", dir_name)
     };
 
-    let spinner = start_spinner(&loading_message);
+    let pb = start_spinner(&loading_message);
 
     let files: Vec<_> = WalkDir::new(&dir)
         .into_iter()
@@ -126,7 +141,12 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
         })
         .collect();
 
-    use rayon::prelude::*;
+    let total_bytes: u64 = files.iter()
+        .filter_map(|entry| entry.metadata().ok().map(|m| m.len()))
+        .sum();
+
+    pb.set_length(total_bytes);
+    let processed_bytes = Arc::new(Mutex::new(0));
     let skipped_files = Arc::new(Mutex::new(Vec::new()));
 
     let mut actual_files_map = HashMap::new();
@@ -137,9 +157,14 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
             let relative_path = strip_prefix(path, &dir);
             let relative_path_str = relative_path.to_string_lossy().to_string();
             let normalized_path = normalize_path(&relative_path_str);
+            let file_size = entry.metadata().ok().map(|m| m.len()).unwrap_or(0);
 
             match compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false) {
                 Ok(file_hash) => {
+                    if let Ok(mut processed) = processed_bytes.lock() {
+                        *processed += file_size;
+                        pb.set_position(*processed);
+                    }
                     let file_hash = file_hash.to_lowercase();
                     let status = if let Some(expected_hash) = expected_files.get(&normalized_path) {
                         if &file_hash == expected_hash {
@@ -156,11 +181,17 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
                     if let Ok(mut skipped) = skipped_files.lock() {
                         skipped.push(relative_path_str);
                     }
+                    if let Ok(mut processed) = processed_bytes.lock() {
+                        *processed += file_size;
+                        pb.set_position(*processed);
+                    }
                     None
                 }
             }
         })
         .collect();
+
+    pb.finish_and_clear();
 
     let mut ok_files = Vec::new();
     let mut mismatched_files = Vec::new();
@@ -182,8 +213,6 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
         .filter(|path| !actual_file_paths.contains(*path))
         .cloned()
         .collect();
-
-    spinner.finish_and_clear();
 
     let count_ok = ok_files.len();
     let count_mismatched = mismatched_files.len();

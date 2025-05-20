@@ -8,18 +8,22 @@ use crate::utils::{start_spinner};
 use crate::error::SharsError;
 
 pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, not_recursive: bool) -> Result<String, SharsError> {
-    let spinner_opt: Option<ProgressBar> = if not_recursive {
-        let loading_message = format!("Loading file '{}'", filename);
-        Some(start_spinner(&loading_message))
+    let file = File::open(filepath)?;
+    let file_size = file.metadata()?.len();
+
+    let pb_opt: Option<ProgressBar> = if not_recursive {
+        let loading_message = format!("loading file '{}'", filename);
+        let pb = start_spinner(&loading_message);
+        pb.set_length(file_size);
+        Some(pb)
     } else {
         None
     };
 
-    let file = File::open(filepath)?;
-
     let mut reader = BufReader::new(&file);
     let mut hasher = Sha256::new();
     let mut buffer = [0; 65536];
+    let mut total_bytes_read = 0;
 
     loop {
         let bytes_read = reader.read(&mut buffer)?;
@@ -27,10 +31,14 @@ pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, not_recursive: b
             break;
         }
         hasher.update(&buffer[..bytes_read]);
+        total_bytes_read += bytes_read as u64;
+        if let Some(pb) = &pb_opt {
+            pb.set_position(total_bytes_read);
+        }
     }
 
-    if let Some(spinner) = spinner_opt {
-        spinner.finish_and_clear();
+    if let Some(pb) = pb_opt {
+        pb.finish_and_clear();
     }
 
     let result = hasher.finalize();

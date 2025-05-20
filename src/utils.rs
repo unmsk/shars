@@ -112,17 +112,16 @@ pub fn highlight_differences(a: &str, b: &str) -> String {
 }
 
 pub fn start_spinner(msg: &str) -> ProgressBar {
-    let spinner = ProgressBar::new_spinner();
-
-    let style = ProgressStyle::default_spinner()
-        .tick_strings(&["|", "/", "-", "\\"])
-        .template("{spinner:.white} {msg}")
-        .unwrap();
-
-    spinner.set_style(style);
-    spinner.set_message(msg.to_string());
-    spinner.enable_steady_tick(Duration::from_millis(100));
-    spinner
+    let pb = ProgressBar::new(0);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}) {msg}")
+            .unwrap()
+            .progress_chars("#>-")
+    );
+    pb.set_message(msg.to_string());
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb
 }
 
 pub fn strip_prefix<'a>(full_path: &'a Path, base_path: &Path) -> &'a Path {
