@@ -10,7 +10,7 @@ use crate::read::read_sha256_file;
 use crate::error::SharsError;
 use encoding_rs::UTF_16LE;
 
-const READ_BUFFER_SIZE: usize = 4096; // 4 KB
+const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5 MB
 
 pub fn is_file_sha(filepath: &PathBuf) -> bool {
     let metadata = match fs::metadata(filepath) {
@@ -18,7 +18,7 @@ pub fn is_file_sha(filepath: &PathBuf) -> bool {
         Err(_) => return false,
     };
 
-    if metadata.len() > 5 * 1024 * 1024 || metadata.len() == 0 {
+    if metadata.len() > MAX_FILE_SIZE || metadata.len() == 0 {
         return false;
     }
 
@@ -26,7 +26,7 @@ pub fn is_file_sha(filepath: &PathBuf) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase());
 
-    if !matches!(ext.as_deref(), Some("sha256") | Some("sha") | Some("txt")) {
+    if !matches!(ext.as_deref(), Some("sha256") | Some("txt") | Some("checksum") | Some("checksums")) {
         return false;
     }
 
@@ -115,7 +115,7 @@ pub fn start_spinner(msg: &str) -> ProgressBar {
     let pb = ProgressBar::new(0);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}) {msg}")
+            .template("{msg}\n[{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec})")
             .unwrap()
             .progress_chars("#>-")
     );

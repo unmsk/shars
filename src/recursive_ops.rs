@@ -244,6 +244,17 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
             }
         }
 
+        if let Ok(skipped) = skipped_files.lock() {
+            if !skipped.is_empty() {
+                println!("{} Skipped {} files due to checksum computation failures:",
+                         "Warning:".truecolor(173, 127, 172),
+                         skipped.len());
+                for file in skipped.iter() {
+                    println!("  FAILED: {}", file);
+                }
+            }
+        }
+
         let status_color = if count_ok > problem_count {
             "Status:".truecolor(119, 193, 178)
         } else {
@@ -252,17 +263,6 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
 
         println!("{} {} out of {} checksums passed ({} mismatched, {} missing)",
                  status_color, count_ok, total_checked + count_missing, count_mismatched, count_missing);
-    }
-
-    if let Ok(skipped) = skipped_files.lock() {
-        if !skipped.is_empty() {
-            println!("{} Skipped {} files due to checksum computation failures:",
-                     "Warning:".truecolor(173, 127, 172),
-                     skipped.len());
-            for file in skipped.iter() {
-                println!("  FAILED: {}", file);
-            }
-        }
     }
 
     Ok(())
