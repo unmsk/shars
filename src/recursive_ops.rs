@@ -1,22 +1,25 @@
+use crate::error::SharsError;
+use crate::hasher::compute_sha_for_file;
+use crate::read::read_sha256_file;
+use crate::utils::{start_spinner, strip_prefix};
+use colored::*;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::fs::File;
 use std::io::Write;
-use walkdir::WalkDir;
-use rayon::prelude::*;
-use colored::*;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use crate::hasher::compute_sha_for_file;
-use crate::read::{read_sha256_file};
-use crate::utils::{strip_prefix, start_spinner};
-use crate::error::SharsError;
+use walkdir::WalkDir;
 
 pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
     if !dir.is_dir() {
-        return Err(SharsError::InvalidDirectory("the 'wr' command requires a directory".to_string()));
+        return Err(SharsError::InvalidDirectory(
+            "the 'wr' command requires a directory".to_string(),
+        ));
     }
 
-    let dir_name = dir.file_name()
+    let dir_name = dir
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("checksums");
 
@@ -26,9 +29,9 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
     let mut checksums_file = File::create(&output_file)?;
 
     let loading_message = if dir_name == "checksums" {
-        "Computing checksums for directory".to_string()
+        "processing directory".to_string()
     } else {
-        format!("Computing checksums for directory '{}'", dir_name)
+        format!("processing directory '{}'", dir_name)
     };
 
     let pb = start_spinner(&loading_message);
@@ -37,12 +40,14 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| {
-            entry.path().is_file() &&
-                entry.file_name().to_string_lossy().to_ascii_lowercase() != checksums_file_name.to_ascii_lowercase()
+            entry.path().is_file()
+                && entry.file_name().to_string_lossy().to_ascii_lowercase()
+                    != checksums_file_name.to_ascii_lowercase()
         })
         .collect();
 
-    let total_bytes: u64 = files.iter()
+    let total_bytes: u64 = files
+        .iter()
         .filter_map(|entry| entry.metadata().ok().map(|m| m.len()))
         .sum();
 
@@ -50,7 +55,8 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
     let processed_bytes = Arc::new(Mutex::new(0));
     let skipped_files = Arc::new(Mutex::new(Vec::new()));
 
-    let results: Vec<_> = files.par_iter()
+    let results: Vec<_> = files
+        .par_iter()
         .filter_map(|entry| {
             let path = entry.path();
             let relative_path = strip_prefix(path, &dir);
@@ -65,7 +71,7 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
                         pb.set_position(*processed);
                     }
                     Some((hash.to_lowercase(), normalized_path, relative_path_str))
-                },
+                }
                 Err(_) => {
                     if let Ok(mut skipped) = skipped_files.lock() {
                         skipped.push(relative_path_str);
@@ -86,15 +92,19 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
         writeln!(checksums_file, "{} {}", hash, original_path)?;
     }
 
-    println!("{} file '{}' created and written to successfully",
-             "Status:".truecolor(119, 193, 178),
-             checksums_file_name.bold().white());
+    println!(
+        "{} file '{}' created and written to successfully",
+        "Status:".truecolor(119, 193, 178),
+        checksums_file_name.bold().white()
+    );
 
     if let Ok(skipped) = skipped_files.lock() {
         if !skipped.is_empty() {
-            println!("{} Skipped {} files due to checksum computation failures:",
-                     "Warning:".truecolor(173, 127, 172),
-                     skipped.len());
+            println!(
+                "{} skipped {} files due to checksum computation failures:",
+                "Warning:".truecolor(173, 127, 172),
+                skipped.len()
+            );
             for file in skipped.iter() {
                 println!("  FAILED: {}", file);
             }
@@ -106,10 +116,13 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
 
 pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
     if !dir.is_dir() {
-        return Err(SharsError::InvalidDirectory("the 'cr' command requires a directory".to_string()));
+        return Err(SharsError::InvalidDirectory(
+            "the 'cr' command requires a directory".to_string(),
+        ));
     }
 
-    let dir_name = dir.file_name()
+    let dir_name = dir
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("checksums");
 
@@ -117,7 +130,10 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
     let checksums_path = dir.join(&checksums_file_name);
 
     if !checksums_path.exists() {
-        return Err(SharsError::InvalidFile(format!("file '{}' is missing", checksums_file_name)));
+        return Err(SharsError::InvalidFile(format!(
+            "file '{}' is missing",
+            checksums_file_name
+        )));
     }
 
     let sha256_content = read_sha256_file(&checksums_path, &checksums_file_name)?;
@@ -125,9 +141,9 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
     let expected_files = parse_sha256_file(&sha256_content);
 
     let loading_message = if dir_name == "checksums" {
-        "Computing checksums for directory".to_string()
+        "processing directory".to_string()
     } else {
-        format!("Computing checksums for directory '{}'", dir_name)
+        format!("processing directory '{}'", dir_name)
     };
 
     let pb = start_spinner(&loading_message);
@@ -136,12 +152,14 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| {
-            entry.path().is_file() &&
-                entry.file_name().to_string_lossy().to_ascii_lowercase() != checksums_file_name.to_ascii_lowercase()
+            entry.path().is_file()
+                && entry.file_name().to_string_lossy().to_ascii_lowercase()
+                    != checksums_file_name.to_ascii_lowercase()
         })
         .collect();
 
-    let total_bytes: u64 = files.iter()
+    let total_bytes: u64 = files
+        .iter()
         .filter_map(|entry| entry.metadata().ok().map(|m| m.len()))
         .sum();
 
@@ -151,7 +169,8 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
 
     let mut actual_files_map = HashMap::new();
 
-    let results: Vec<(FileStatus, String, String)> = files.par_iter()
+    let results: Vec<(FileStatus, String, String)> = files
+        .par_iter()
         .filter_map(|entry| {
             let path = entry.path();
             let relative_path = strip_prefix(path, &dir);
@@ -176,7 +195,7 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
                         FileStatus::ExtraFile
                     };
                     Some((status, normalized_path, relative_path_str))
-                },
+                }
                 Err(_) => {
                     if let Ok(mut skipped) = skipped_files.lock() {
                         skipped.push(relative_path_str);
@@ -209,7 +228,8 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
         }
     }
 
-    let missing_files_from_checksum: Vec<_> = expected_files.keys()
+    let missing_files_from_checksum: Vec<_> = expected_files
+        .keys()
         .filter(|path| !actual_file_paths.contains(*path))
         .cloned()
         .collect();
@@ -221,17 +241,20 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
     let problem_count = count_mismatched + count_missing;
 
     if count_mismatched == 0 && count_missing == 0 && extra_files.is_empty() {
-        println!("{} All checksums passed!", "Status:".truecolor(119, 193, 178));
+        println!(
+            "{} All checksums passed!",
+            "Status:".truecolor(119, 193, 178)
+        );
     } else {
         if !mismatched_files.is_empty() {
-            println!("Files with MISMATCHED hashes:");
+            println!("files with MISMATCHED hashes:");
             for file in &mismatched_files {
                 println!("  MISMATCHED: {}", file);
             }
         }
 
         if !missing_files_from_checksum.is_empty() {
-            println!("Files MISSING from directory (listed in checksums file):");
+            println!("files MISSING from directory (listed in checksums file):");
             for file in &missing_files_from_checksum {
                 println!("  MISSING: {}", file);
             }
@@ -246,9 +269,11 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
 
         if let Ok(skipped) = skipped_files.lock() {
             if !skipped.is_empty() {
-                println!("{} Skipped {} files due to checksum computation failures:",
-                         "Warning:".truecolor(173, 127, 172),
-                         skipped.len());
+                println!(
+                    "{} skipped {} files due to checksum computation failures:",
+                    "Warning:".truecolor(173, 127, 172),
+                    skipped.len()
+                );
                 for file in skipped.iter() {
                     println!("  FAILED: {}", file);
                 }
@@ -261,8 +286,14 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
             "Status:".truecolor(173, 127, 172)
         };
 
-        println!("{} {} out of {} checksums passed ({} mismatched, {} missing)",
-                 status_color, count_ok, total_checked + count_missing, count_mismatched, count_missing);
+        println!(
+            "{} {} out of {} checksums passed ({} mismatched, {} missing)",
+            status_color,
+            count_ok,
+            total_checked + count_missing,
+            count_mismatched,
+            count_missing
+        );
     }
 
     Ok(())

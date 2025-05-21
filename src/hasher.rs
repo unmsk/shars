@@ -1,18 +1,22 @@
+use indicatif::ProgressBar;
+use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
-use indicatif::ProgressBar;
-use sha2::{Digest, Sha256};
 
-use crate::utils::{start_spinner};
 use crate::error::SharsError;
+use crate::utils::start_spinner;
 
-pub fn compute_sha_for_file(filepath: &PathBuf, filename: &str, not_recursive: bool) -> Result<String, SharsError> {
+pub fn compute_sha_for_file(
+    filepath: &PathBuf,
+    filename: &str,
+    not_recursive: bool,
+) -> Result<String, SharsError> {
     let file = File::open(filepath)?;
     let file_size = file.metadata()?.len();
 
     let pb_opt: Option<ProgressBar> = if not_recursive {
-        let loading_message = format!("loading file '{}'", filename);
+        let loading_message = format!("processing file '{}'", filename);
         let pb = start_spinner(&loading_message);
         pb.set_length(file_size);
         Some(pb)
