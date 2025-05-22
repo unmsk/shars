@@ -34,8 +34,6 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
         format!("processing directory '{}'", dir_name)
     };
 
-    let pb = start_spinner(&loading_message);
-
     let files: Vec<_> = WalkDir::new(&dir)
         .into_iter()
         .filter_map(Result::ok)
@@ -51,8 +49,10 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
         .filter_map(|entry| entry.metadata().ok().map(|m| m.len()))
         .sum();
 
+    let pb = start_spinner(&loading_message);
     pb.set_length(total_bytes);
-    let processed_bytes = Arc::new(Mutex::new(0));
+    
+    let processed_bytes = Arc::new(Mutex::new(0u64));
     let skipped_files = Arc::new(Mutex::new(Vec::new()));
 
     let results: Vec<_> = files
@@ -66,20 +66,27 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
 
             match compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false) {
                 Ok(hash) => {
-                    if let Ok(mut processed) = processed_bytes.lock() {
+                    let new_position = {
+                        let mut processed = processed_bytes.lock().unwrap();
                         *processed += file_size;
-                        pb.set_position(*processed);
-                    }
+                        *processed
+                    };
+                    pb.set_position(new_position);
+                    
                     Some((hash.to_lowercase(), normalized_path, relative_path_str))
                 }
                 Err(_) => {
                     if let Ok(mut skipped) = skipped_files.lock() {
                         skipped.push(relative_path_str);
                     }
-                    if let Ok(mut processed) = processed_bytes.lock() {
+                    
+                    let new_position = {
+                        let mut processed = processed_bytes.lock().unwrap();
                         *processed += file_size;
-                        pb.set_position(*processed);
-                    }
+                        *processed
+                    };
+                    pb.set_position(new_position);
+                    
                     None
                 }
             }
@@ -146,8 +153,6 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
         format!("processing directory '{}'", dir_name)
     };
 
-    let pb = start_spinner(&loading_message);
-
     let files: Vec<_> = WalkDir::new(&dir)
         .into_iter()
         .filter_map(Result::ok)
@@ -163,8 +168,10 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
         .filter_map(|entry| entry.metadata().ok().map(|m| m.len()))
         .sum();
 
+    let pb = start_spinner(&loading_message);
     pb.set_length(total_bytes);
-    let processed_bytes = Arc::new(Mutex::new(0));
+    
+    let processed_bytes = Arc::new(Mutex::new(0u64));
     let skipped_files = Arc::new(Mutex::new(Vec::new()));
 
     let mut actual_files_map = HashMap::new();
@@ -180,10 +187,13 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
 
             match compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false) {
                 Ok(file_hash) => {
-                    if let Ok(mut processed) = processed_bytes.lock() {
+                    let new_position = {
+                        let mut processed = processed_bytes.lock().unwrap();
                         *processed += file_size;
-                        pb.set_position(*processed);
-                    }
+                        *processed
+                    };
+                    pb.set_position(new_position);
+                    
                     let file_hash = file_hash.to_lowercase();
                     let status = if let Some(expected_hash) = expected_files.get(&normalized_path) {
                         if &file_hash == expected_hash {
@@ -200,10 +210,14 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
                     if let Ok(mut skipped) = skipped_files.lock() {
                         skipped.push(relative_path_str);
                     }
-                    if let Ok(mut processed) = processed_bytes.lock() {
+                    
+                    let new_position = {
+                        let mut processed = processed_bytes.lock().unwrap();
                         *processed += file_size;
-                        pb.set_position(*processed);
-                    }
+                        *processed
+                    };
+                    pb.set_position(new_position);
+                    
                     None
                 }
             }
