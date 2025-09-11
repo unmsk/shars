@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
 
-pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
+pub fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
     if !dir.is_dir() {
         return Err(SharsError::InvalidDirectory(
             "the 'wr' command requires a directory".to_string(),
@@ -51,7 +51,7 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
 
     let pb = start_spinner(&loading_message);
     pb.set_length(total_bytes);
-    
+
     let processed_bytes = Arc::new(Mutex::new(0u64));
     let skipped_files = Arc::new(Mutex::new(Vec::new()));
 
@@ -72,21 +72,21 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
                         *processed
                     };
                     pb.set_position(new_position);
-                    
+
                     Some((hash.to_lowercase(), normalized_path, relative_path_str))
                 }
                 Err(_) => {
                     if let Ok(mut skipped) = skipped_files.lock() {
                         skipped.push(relative_path_str);
                     }
-                    
+
                     let new_position = {
                         let mut processed = processed_bytes.lock().unwrap();
                         *processed += file_size;
                         *processed
                     };
                     pb.set_position(new_position);
-                    
+
                     None
                 }
             }
@@ -121,7 +121,7 @@ pub async fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
     Ok(())
 }
 
-pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
+pub fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
     if !dir.is_dir() {
         return Err(SharsError::InvalidDirectory(
             "the 'cr' command requires a directory".to_string(),
@@ -170,7 +170,7 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
 
     let pb = start_spinner(&loading_message);
     pb.set_length(total_bytes);
-    
+
     let processed_bytes = Arc::new(Mutex::new(0u64));
     let skipped_files = Arc::new(Mutex::new(Vec::new()));
 
@@ -193,7 +193,7 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
                         *processed
                     };
                     pb.set_position(new_position);
-                    
+
                     let file_hash = file_hash.to_lowercase();
                     let status = if let Some(expected_hash) = expected_files.get(&normalized_path) {
                         if &file_hash == expected_hash {
@@ -210,14 +210,14 @@ pub async fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
                     if let Ok(mut skipped) = skipped_files.lock() {
                         skipped.push(relative_path_str);
                     }
-                    
+
                     let new_position = {
                         let mut processed = processed_bytes.lock().unwrap();
                         *processed += file_size;
                         *processed
                     };
                     pb.set_position(new_position);
-                    
+
                     None
                 }
             }
