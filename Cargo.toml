@@ -16,6 +16,7 @@ encoding_rs = "0.8.35"
 clap = { version = "4.4", features = ["derive", "cargo"] }
 rayon = "1.8"
 indicatif = "0.17"
+anyhow = "1.0.99"
 
 [profile.release]
 lto = "thin"
