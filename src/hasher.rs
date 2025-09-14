@@ -1,19 +1,22 @@
+use anyhow::{Context, Result};
 use indicatif::ProgressBar;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
-
-use crate::error::SharsError;
 use crate::utils::start_spinner;
 
 pub fn compute_sha_for_file(
     filepath: &PathBuf,
     filename: &str,
     not_recursive: bool,
-) -> Result<String, SharsError> {
-    let file = File::open(filepath)?;
-    let file_size = file.metadata()?.len();
+) -> Result<String> {
+    let file = File::open(filepath)
+        .with_context(|| format!("Failed to open file '{}'", filename))?;
+    
+    let file_size = file.metadata()
+        .with_context(|| format!("Failed to get metadata for '{}'", filename))?
+        .len();
 
     let pb_opt: Option<ProgressBar> = if not_recursive {
         let loading_message = format!("processing file '{}'", filename);
@@ -30,12 +33,16 @@ pub fn compute_sha_for_file(
     let mut total_bytes_read = 0;
 
     loop {
-        let bytes_read = reader.read(&mut buffer)?;
+        let bytes_read = reader.read(&mut buffer)
+            .with_context(|| format!("Failed to read from file '{}'", filename))?;
+        
         if bytes_read == 0 {
             break;
         }
+        
         hasher.update(&buffer[..bytes_read]);
         total_bytes_read += bytes_read as u64;
+        
         if let Some(pb) = &pb_opt {
             pb.set_position(total_bytes_read);
         }

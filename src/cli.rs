@@ -57,4 +57,4 @@ pub enum Commands {
         #[arg(value_parser = parse_path)]
         directory: PathBuf,
     },
-} 
+}

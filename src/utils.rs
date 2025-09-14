@@ -1,3 +1,4 @@
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
@@ -7,7 +8,6 @@ use colored::Colorize;
 use regex_lite::Regex;
 use indicatif::{ProgressBar, ProgressStyle};
 use crate::read::read_sha256_file;
-use crate::error::SharsError;
 use encoding_rs::UTF_16LE;
 
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5 MB
@@ -81,26 +81,30 @@ fn check_utf8_content(filepath: &PathBuf) -> bool {
         .any(|line| sha256_regex.is_match(&line))
 }
 
-pub fn return_checksum(file_path: &PathBuf, shortened_filename: &str, checksum_1: &str) -> Result<String, SharsError> {
-    let content = read_sha256_file(file_path, shortened_filename)?;
+pub fn return_checksum(file_path: &PathBuf, shortened_filename: &str, checksum_1: &str) -> Result<String> {
+    let content = read_sha256_file(file_path, shortened_filename)
+        .with_context(|| format!("Failed to read SHA256 file '{}'", shortened_filename))?;
     
     let pattern = format!(
         r"\b{}[0-9a-fA-F]{{{}}}\b",
         regex_lite::escape(checksum_1),
         64 - checksum_1.len()
     );
-    let re = Regex::new(&pattern)?;
+    let re = Regex::new(&pattern)
+        .context("Failed to compile regex pattern")?;
 
     if let Some(mat) = re.find(&content) {
         return Ok(mat.as_str().trim().to_string());
     }
     
-    let re_any = Regex::new(SHA256_ANY_PATTERN)?;
+    let re_any = Regex::new(SHA256_ANY_PATTERN)
+        .context("Failed to compile fallback regex pattern")?;
+    
     if let Some(mat) = re_any.find(&content) {
         return Ok(mat.as_str().trim().to_string());
     }
 
-    Err(SharsError::ChecksumError("No valid checksum found in file".to_string()))
+    bail!("No valid checksum found in file '{}'", shortened_filename);
 }
 
 pub fn highlight_differences(a: &str, b: &str) -> String {
@@ -119,7 +123,6 @@ pub fn highlight_differences(a: &str, b: &str) -> String {
         diff.truecolor(173, 127, 172).to_string()
     }
 }
-
 
 pub fn start_spinner(msg: &str) -> ProgressBar {
     let pb = ProgressBar::new(0);
@@ -148,7 +151,7 @@ pub fn shorten_str(file_name: &str, max_len: usize) -> String {
     }
 }
 
-pub fn parse_path(s: &str) -> Result<PathBuf, SharsError> {
+pub fn parse_path(s: &str) -> Result<PathBuf> {
     let clean_str = s.trim_matches('"').trim_matches('\'');
     
     if clean_str.len() == 64 && clean_str.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -157,7 +160,7 @@ pub fn parse_path(s: &str) -> Result<PathBuf, SharsError> {
     
     let path_buf = PathBuf::from(clean_str);
     if !path_buf.exists() {
-        return Err(SharsError::InvalidPath(format!("file '{}' not found", clean_str)));
+        bail!("file '{}' not found", clean_str);
     }
 
     Ok(path_buf)
@@ -227,12 +230,7 @@ mod tests {
     fn test_parse_path_nonexistent_file() {
         let result = parse_path("nonexistent_file.txt");
         assert!(result.is_err());
-        match result {
-            Err(SharsError::InvalidPath(msg)) => {
-                assert!(msg.contains("not found"));
-            }
-            _ => panic!("Expected InvalidPath error"),
-        }
+        assert!(result.unwrap_err().to_string().contains("not found"));
     }
 
     #[test]

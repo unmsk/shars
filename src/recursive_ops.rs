@@ -1,4 +1,4 @@
-use crate::error::SharsError;
+use anyhow::{Context, Result, bail};
 use crate::hasher::compute_sha_for_file;
 use crate::read::read_sha256_file;
 use crate::utils::{start_spinner, strip_prefix};
@@ -11,11 +11,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
 
-pub fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
+pub fn write_recursive(dir: PathBuf) -> Result<()> {
     if !dir.is_dir() {
-        return Err(SharsError::InvalidDirectory(
-            "the 'wr' command requires a directory".to_string(),
-        ));
+        bail!("the 'wr' command requires a directory");
     }
 
     let dir_name = dir
@@ -26,7 +24,8 @@ pub fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
     let checksums_file_name = format!("{}.sha256", dir_name);
     let output_file = dir.join(&checksums_file_name);
 
-    let mut checksums_file = File::create(&output_file)?;
+    let mut checksums_file = File::create(&output_file)
+        .with_context(|| format!("Failed to create checksums file '{}'", checksums_file_name))?;
 
     let loading_message = if dir_name == "checksums" {
         "processing directory".to_string()
@@ -96,7 +95,8 @@ pub fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
     pb.finish_and_clear();
 
     for (hash, _, original_path) in results {
-        writeln!(checksums_file, "{} {}", hash, original_path)?;
+        writeln!(checksums_file, "{} {}", hash, original_path)
+            .with_context(|| format!("Failed to write to checksums file '{}'", checksums_file_name))?;
     }
 
     println!(
@@ -121,11 +121,9 @@ pub fn write_recursive(dir: PathBuf) -> Result<(), SharsError> {
     Ok(())
 }
 
-pub fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
+pub fn check_recursive(dir: PathBuf) -> Result<()> {
     if !dir.is_dir() {
-        return Err(SharsError::InvalidDirectory(
-            "the 'cr' command requires a directory".to_string(),
-        ));
+        bail!("the 'cr' command requires a directory");
     }
 
     let dir_name = dir
@@ -137,13 +135,11 @@ pub fn check_recursive(dir: PathBuf) -> Result<(), SharsError> {
     let checksums_path = dir.join(&checksums_file_name);
 
     if !checksums_path.exists() {
-        return Err(SharsError::InvalidFile(format!(
-            "file '{}' is missing",
-            checksums_file_name
-        )));
+        bail!("file '{}' is missing", checksums_file_name);
     }
 
-    let sha256_content = read_sha256_file(&checksums_path, &checksums_file_name)?;
+    let sha256_content = read_sha256_file(&checksums_path, &checksums_file_name)
+        .with_context(|| format!("Failed to read checksums file '{}'", checksums_file_name))?;
 
     let expected_files = parse_sha256_file(&sha256_content);
 

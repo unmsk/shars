@@ -1,5 +1,5 @@
+use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
-use crate::error::SharsError;
 use crate::hasher::compute_sha_for_file;
 use crate::utils::{is_file_sha, shorten_str, return_checksum, highlight_differences};
 use colored::*;
@@ -20,7 +20,7 @@ impl ComparisonHandler {
         Self { input1, input2 }
     }
 
-    pub fn compare(self) -> Result<(), SharsError> {
+    pub fn compare(self) -> Result<()> {
         self.validate_inputs()?;
         
         let input1_type = self.classify_input(&self.input1);
@@ -28,7 +28,8 @@ impl ComparisonHandler {
         
         match (input1_type, input2_type) {
             (InputType::Checksum(c1), InputType::Checksum(c2)) => {
-                self.compare_checksums(&c1, &c2, "USER-SHA-1", "USER-SHA-2")
+                self.compare_checksums(&c1, &c2, "USER-SHA-1", "USER-SHA-2");
+                Ok(())
             },
             (InputType::Checksum(checksum), InputType::File(file)) => {
                 self.compare_checksum_with_file(&checksum, &file, "USER-SHA", true)
@@ -42,12 +43,10 @@ impl ComparisonHandler {
         }
     }
 
-    fn validate_inputs(&self) -> Result<(), SharsError> {
+    fn validate_inputs(&self) -> Result<()> {
         for input in [&self.input1, &self.input2] {
             if !self.is_checksum(input) && input.exists() && input.is_dir() {
-                return Err(SharsError::InvalidDirectory(
-                    "the 'c' command does not work with directories. Use 'wr' or 'cr' instead".to_string()
-                ));
+                bail!("the 'c' command does not work with directories. Use 'wr' or 'cr' instead");
             }
         }
         Ok(())
@@ -66,23 +65,27 @@ impl ComparisonHandler {
         path_str.len() == 64 && path_str.chars().all(|c| c.is_ascii_hexdigit())
     }
 
-    fn compare_checksums(&self, checksum1: &str, checksum2: &str, label1: &str, label2: &str) -> Result<(), SharsError> {
+    fn compare_checksums(&self, checksum1: &str, checksum2: &str, label1: &str, label2: &str) {
         self.output_result(checksum1, checksum2, label1, label2);
-        Ok(())
     }
 
-    fn compare_checksum_with_file(&self, checksum: &str, file: &PathBuf, checksum_label: &str, checksum_first: bool) -> Result<(), SharsError> {
-        let filename = file.file_name().unwrap().to_str().unwrap();
+    fn compare_checksum_with_file(&self, checksum: &str, file: &PathBuf, checksum_label: &str, checksum_first: bool) -> Result<()> {
+        let filename = file.file_name()
+            .and_then(|n| n.to_str())
+            .context("Failed to get filename")?;
         let shortened_filename = shorten_str(filename, 18);
         
         let file_checksum = if is_file_sha(file) {
-            let extracted = return_checksum(file, &shortened_filename, checksum)?;
+            let extracted = return_checksum(file, &shortened_filename, checksum)
+                .with_context(|| format!("Failed to extract checksum from file '{}'", shortened_filename))?;
             println!("{} shars extracted checksum from file '{}'",
                      "Warning:".truecolor(119, 193, 178), 
                      shortened_filename.bold().white());
             extracted
         } else {
-            compute_sha_for_file(file, &shortened_filename, true)?.to_lowercase()
+            compute_sha_for_file(file, &shortened_filename, true)
+                .with_context(|| format!("Failed to compute checksum for file '{}'", shortened_filename))?
+                .to_lowercase()
         };
 
         if checksum_first {
@@ -94,9 +97,13 @@ impl ComparisonHandler {
         Ok(())
     }
 
-    fn compare_files(&self, file1: &PathBuf, file2: &PathBuf) -> Result<(), SharsError> {
-        let filename1 = file1.file_name().unwrap().to_str().unwrap();
-        let filename2 = file2.file_name().unwrap().to_str().unwrap();
+    fn compare_files(&self, file1: &PathBuf, file2: &PathBuf) -> Result<()> {
+        let filename1 = file1.file_name()
+            .and_then(|n| n.to_str())
+            .context("Failed to get first filename")?;
+        let filename2 = file2.file_name()
+            .and_then(|n| n.to_str())
+            .context("Failed to get second filename")?;
         let shortened_filename1 = shorten_str(filename1, 18);
         let shortened_filename2 = shorten_str(filename2, 18);
 
@@ -115,21 +122,28 @@ impl ComparisonHandler {
         filename1: &str,
         file2: &PathBuf, 
         filename2: &str
-    ) -> Result<(String, String), SharsError> {
+    ) -> Result<(String, String)> {
         let is_sha1 = is_file_sha(file1);
         let is_sha2 = is_file_sha(file2);
 
         match (is_sha1, is_sha2) {
             (false, false) => {
                 // both are regular files
-                let checksum1 = compute_sha_for_file(file1, filename1, true)?.to_lowercase();
-                let checksum2 = compute_sha_for_file(file2, filename2, true)?.to_lowercase();
+                let checksum1 = compute_sha_for_file(file1, filename1, true)
+                    .with_context(|| format!("Failed to compute checksum for '{}'", filename1))?
+                    .to_lowercase();
+                let checksum2 = compute_sha_for_file(file2, filename2, true)
+                    .with_context(|| format!("Failed to compute checksum for '{}'", filename2))?
+                    .to_lowercase();
                 Ok((checksum1, checksum2))
             },
             (true, false) => {
                 // file1 is SHA file, file2 is regular file
-                let checksum2 = compute_sha_for_file(file2, filename2, true)?.to_lowercase();
-                let checksum1 = return_checksum(file1, filename1, &checksum2)?;
+                let checksum2 = compute_sha_for_file(file2, filename2, true)
+                    .with_context(|| format!("Failed to compute checksum for '{}'", filename2))?
+                    .to_lowercase();
+                let checksum1 = return_checksum(file1, filename1, &checksum2)
+                    .with_context(|| format!("Failed to extract checksum from '{}'", filename1))?;
                 println!("{} shars extracted checksum from file '{}'", 
                     "Warning:".truecolor(119, 193, 178), 
                     filename1.bold().white());
@@ -137,8 +151,11 @@ impl ComparisonHandler {
             },
             (false, true) => {
                 // file1 is regular file, file2 is SHA file
-                let checksum1 = compute_sha_for_file(file1, filename1, true)?.to_lowercase();
-                let checksum2 = return_checksum(file2, filename2, &checksum1)?;
+                let checksum1 = compute_sha_for_file(file1, filename1, true)
+                    .with_context(|| format!("Failed to compute checksum for '{}'", filename1))?
+                    .to_lowercase();
+                let checksum2 = return_checksum(file2, filename2, &checksum1)
+                    .with_context(|| format!("Failed to extract checksum from '{}'", filename2))?;
                 println!("{} shars extracted checksum from file '{}'", 
                     "Warning:".truecolor(119, 193, 178), 
                     filename2.bold().white());
@@ -146,8 +163,12 @@ impl ComparisonHandler {
             },
             (true, true) => {
                 // both are SHA files - compute their checksums
-                let checksum1 = compute_sha_for_file(file1, filename1, true)?.to_lowercase();
-                let checksum2 = compute_sha_for_file(file2, filename2, true)?.to_lowercase();
+                let checksum1 = compute_sha_for_file(file1, filename1, true)
+                    .with_context(|| format!("Failed to compute checksum for '{}'", filename1))?
+                    .to_lowercase();
+                let checksum2 = compute_sha_for_file(file2, filename2, true)
+                    .with_context(|| format!("Failed to compute checksum for '{}'", filename2))?
+                    .to_lowercase();
                 Ok((checksum1, checksum2))
             }
         }
@@ -229,13 +250,7 @@ mod tests {
         
         let result = handler.validate_inputs();
         assert!(result.is_err());
-        
-        match result {
-            Err(SharsError::InvalidDirectory(msg)) => {
-                assert!(msg.contains("does not work with directories"));
-            }
-            _ => panic!("Expected InvalidDirectory error"),
-        }
+        assert!(result.unwrap_err().to_string().contains("does not work with directories"));
         
         Ok(())
     }
@@ -252,21 +267,19 @@ mod tests {
 
     #[test]
     fn test_compare_checksums_identical() {
-        let checksum = "a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890";
+        let checksum = "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678";
         let handler = ComparisonHandler::new(PathBuf::new(), PathBuf::new());
         
-        let result = handler.compare_checksums(checksum, checksum, "TEST1", "TEST2");
-        assert!(result.is_ok());
+        handler.compare_checksums(checksum, checksum, "TEST1", "TEST2");
     }
 
     #[test]
     fn test_compare_checksums_different() {
-        let checksum1 = "a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890";
-        let checksum2 = "b1a2d3c4f5e6789012345678901234567890123456789012345678901234567890";
+        let checksum1 = "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678";
+        let checksum2 = "b1a2d3c4f5e67890123456789012345678901234567890123456789012345678";
         let handler = ComparisonHandler::new(PathBuf::new(), PathBuf::new());
         
-        let result = handler.compare_checksums(checksum1, checksum2, "TEST1", "TEST2");
-        assert!(result.is_ok());
+        handler.compare_checksums(checksum1, checksum2, "TEST1", "TEST2");
     }
 
     #[test]

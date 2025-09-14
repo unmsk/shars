@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use clap::Parser;
 use colored::*;
 use sha2::{Digest, Sha256};
@@ -8,7 +9,6 @@ use std::path::PathBuf;
 
 mod cli;
 mod comparison;
-mod error;
 mod hasher;
 mod read;
 mod recursive_ops;
@@ -16,7 +16,6 @@ mod utils;
 
 use cli::{Cli, Commands};
 use comparison::ComparisonHandler;
-use error::SharsError;
 use hasher::compute_sha_for_file;
 use recursive_ops::{check_recursive, write_recursive};
 use utils::shorten_str;
@@ -25,11 +24,18 @@ fn main() {
     if let Err(e) = run(Cli::parse()) {
         let error_color = "Error:".truecolor(173, 127, 172);
         eprintln!("{} {}", error_color, e);
+        
+        let mut source = e.source();
+        while let Some(err) = source {
+            eprintln!("  Caused by: {}", err);
+            source = err.source();
+        }
+        
         std::process::exit(1);
     }
 }
 
-fn run(cli: Cli) -> Result<(), SharsError> {
+fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::S { filename } => handle_single_file_checksum(filename),
         Commands::T { text } => handle_text_checksum(text),
@@ -43,15 +49,18 @@ fn run(cli: Cli) -> Result<(), SharsError> {
     }
 }
 
-fn handle_single_file_checksum(filename: PathBuf) -> Result<(), SharsError> {
+fn handle_single_file_checksum(filename: PathBuf) -> Result<()> {
     if !filename.is_file() {
-        return Err(SharsError::InvalidFile(
-            "the 's' command does not work with directories. use 'wr' or 'cr' instead".to_string(),
-        ));
+        anyhow::bail!("the 's' command does not work with directories. use 'wr' or 'cr' instead");
     }
 
-    let file_name = filename.file_name().unwrap().to_string_lossy();
-    let computed_hash = compute_sha_for_file(&filename, &file_name, true)?;
+    let file_name = filename.file_name()
+        .context("Failed to get filename")?
+        .to_string_lossy();
+    
+    let computed_hash = compute_sha_for_file(&filename, &file_name, true)
+        .with_context(|| format!("Failed to compute hash for '{}'", file_name))?;
+    
     let shortened_name = shorten_str(&file_name, 18);
 
     println!(
@@ -63,7 +72,7 @@ fn handle_single_file_checksum(filename: PathBuf) -> Result<(), SharsError> {
     Ok(())
 }
 
-fn handle_text_checksum(text: String) -> Result<(), SharsError> {
+fn handle_text_checksum(text: String) -> Result<()> {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
     let checksum = format!("{:x}", hasher.finalize());
@@ -73,21 +82,29 @@ fn handle_text_checksum(text: String) -> Result<(), SharsError> {
     Ok(())
 }
 
-fn handle_write_checksum(filename: PathBuf) -> Result<(), SharsError> {
+fn handle_write_checksum(filename: PathBuf) -> Result<()> {
     if !filename.is_file() {
-        return Err(SharsError::InvalidFile(
-            "the 'w' command does not work with directories. use 'wr' or 'cr' instead".to_string(),
-        ));
+        anyhow::bail!("the 'w' command does not work with directories. use 'wr' or 'cr' instead");
     }
 
-    let file_name = filename.file_name().unwrap().to_string_lossy();
-    let computed_hash = compute_sha_for_file(&filename, &file_name, true)?;
+    let file_name = filename.file_name()
+        .context("Failed to get filename")?
+        .to_string_lossy();
+    
+    let computed_hash = compute_sha_for_file(&filename, &file_name, true)
+        .with_context(|| format!("Failed to compute hash for '{}'", file_name))?;
+    
     let checksum_content = format!("{} {}", computed_hash.to_lowercase(), file_name);
     let checksum_file_path = filename.with_extension("sha256");
-    let checksum_file_name = checksum_file_path.file_name().unwrap().to_string_lossy();
+    let checksum_file_name = checksum_file_path.file_name()
+        .context("Failed to get checksum filename")?
+        .to_string_lossy();
 
-    let mut checksum_file = File::create(&checksum_file_path)?;
-    checksum_file.write_all(checksum_content.as_bytes())?;
+    let mut checksum_file = File::create(&checksum_file_path)
+        .with_context(|| format!("Failed to create checksum file '{}'", checksum_file_name))?;
+    
+    checksum_file.write_all(checksum_content.as_bytes())
+        .with_context(|| format!("Failed to write to checksum file '{}'", checksum_file_name))?;
 
     println!(
         "{} file '{}' created and written to successfully",
@@ -98,21 +115,19 @@ fn handle_write_checksum(filename: PathBuf) -> Result<(), SharsError> {
     Ok(())
 }
 
-fn handle_write_recursive(directory: PathBuf) -> Result<(), SharsError> {
+fn handle_write_recursive(directory: PathBuf) -> Result<()> {
     let dir = resolve_directory(directory)?;
-
     write_recursive(dir)
 }
 
-fn handle_check_recursive(directory: PathBuf) -> Result<(), SharsError> {
+fn handle_check_recursive(directory: PathBuf) -> Result<()> {
     let dir = resolve_directory(directory)?;
-
     check_recursive(dir)
 }
 
-fn resolve_directory(directory: PathBuf) -> Result<PathBuf, SharsError> {
+fn resolve_directory(directory: PathBuf) -> Result<PathBuf> {
     if directory == PathBuf::from(".") {
-        current_dir().map_err(SharsError::IoError)
+        current_dir().context("Failed to get current directory")
     } else {
         Ok(directory)
     }
