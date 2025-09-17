@@ -19,10 +19,8 @@ indicatif = "0.17"
 anyhow = "1.0.99"
 
 [profile.release]
-lto = "thin"
 codegen-units = 1
 strip = true
-opt-level = "z"
 
 [dev-dependencies] 
 tempfile = "3.8"
