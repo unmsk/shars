@@ -1,346 +1,187 @@
-use anyhow::{Context, Result, bail};
-use crate::hasher::compute_sha_for_file;
-use crate::read::read_sha256_file;
-use crate::utils::{start_spinner, strip_prefix};
-use colored::*;
-use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use walkdir::WalkDir;
+use rayon::prelude::*;
 
-pub fn write_recursive(dir: PathBuf) -> Result<()> {
-    if !dir.is_dir() {
-        bail!("the 'wr' command requires a directory");
+use crate::hasher;
+use crate::util;
+
+pub fn handle_wr_command(dir: &PathBuf) {
+    if !dir.exists() {
+        eprintln!("{} directory {:?} not found", util::error_tag(), dir);
+        return;
     }
 
-    let dir_name = dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("checksums");
+    if !dir.is_dir() {
+        eprintln!("{} {:?} is not a directory", util::error_tag(), dir);
+        return;
+    }
 
-    let checksums_file_name = format!("{}.sha256", dir_name);
-    let output_file = dir.join(&checksums_file_name);
-
-    let mut checksums_file = File::create(&output_file)
-        .with_context(|| format!("Failed to create checksums file '{}'", checksums_file_name))?;
-
-    let loading_message = if dir_name == "checksums" {
-        "processing directory".to_string()
-    } else {
-        format!("processing directory '{}'", dir_name)
+    let mut ignore_files = vec!["checksums.txt".to_string(), "checksums.sha256".to_string()];
+    if let Some(name) = dir.file_name() {
+        ignore_files.push(format!("{}.sha256", name.to_string_lossy()));
+    }
+    let ignore_refs: Vec<&str> = ignore_files.iter().map(|s| s.as_str()).collect();
+    let files = match util::collect_all_files(dir, Some(&ignore_refs)) {
+        Ok(files) => {
+            files
+        }
+        Err(e) => {
+            eprintln!("{} scanning directory {:?}: {}", util::error_tag(), dir, e);
+            return;
+        }
     };
 
-    let files: Vec<_> = WalkDir::new(&dir)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry.path().is_file()
-                && entry.file_name().to_string_lossy().to_ascii_lowercase()
-                    != checksums_file_name.to_ascii_lowercase()
-        })
-        .collect();
+    if files.is_empty() {
 
-    let total_bytes: u64 = files
-        .iter()
-        .filter_map(|entry| entry.metadata().ok().map(|m| m.len()))
-        .sum();
+        println!("no files found in directory");
+        return;
+    }
 
-    let pb = start_spinner(&loading_message);
-    pb.set_length(total_bytes);
-
-    let processed_bytes = Arc::new(Mutex::new(0u64));
-    let skipped_files = Arc::new(Mutex::new(Vec::new()));
+    let pb_progress = util::start_progress_bar_files(&format!("computing checksums using {} threads...", rayon::current_num_threads()), files.len() as u64);
 
     let results: Vec<_> = files
         .par_iter()
-        .filter_map(|entry| {
-            let path = entry.path();
-            let relative_path = strip_prefix(path, &dir);
-            let relative_path_str = relative_path.to_string_lossy().to_string();
-            let normalized_path = normalize_path(&relative_path_str);
-            let file_size = entry.metadata().ok().map(|m| m.len()).unwrap_or(0);
-
-            match compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false) {
-                Ok(hash) => {
-                    let new_position = {
-                        let mut processed = processed_bytes.lock().unwrap();
-                        *processed += file_size;
-                        *processed
-                    };
-                    pb.set_position(new_position);
-
-                    Some((hash.to_lowercase(), normalized_path, relative_path_str))
-                }
-                Err(_) => {
-                    if let Ok(mut skipped) = skipped_files.lock() {
-                        skipped.push(relative_path_str);
-                    }
-
-                    let new_position = {
-                        let mut processed = processed_bytes.lock().unwrap();
-                        *processed += file_size;
-                        *processed
-                    };
-                    pb.set_position(new_position);
-
-                    None
-                }
-            }
+        .map(|file_path| {
+            let result = hasher::hash_file_sha256(file_path);
+            pb_progress.inc(1);
+            (file_path.clone(), result)
         })
         .collect();
 
-    pb.finish_and_clear();
+    util::finish_progress_bar(&pb_progress, "");
 
-    for (hash, _, original_path) in results {
-        writeln!(checksums_file, "{} {}", hash, original_path)
-            .with_context(|| format!("Failed to write to checksums file '{}'", checksums_file_name))?;
-    }
+    let mut checksums = Vec::new();
+    let mut errors = Vec::new();
 
-    println!(
-        "{} file '{}' created and written to successfully",
-        "Status:".truecolor(119, 193, 178),
-        checksums_file_name.bold().white()
-    );
-
-    if let Ok(skipped) = skipped_files.lock() {
-        if !skipped.is_empty() {
-            println!(
-                "{} skipped {} files due to checksum computation failures:",
-                "Warning:".truecolor(173, 127, 172),
-                skipped.len()
-            );
-            for file in skipped.iter() {
-                println!("  FAILED: {}", file);
-            }
+    for (file_path, result) in results {
+        match result {
+            Ok(checksum) => checksums.push((file_path, checksum)),
+            Err(e) => errors.push((file_path, e)),
         }
     }
 
-    Ok(())
-}
-
-pub fn check_recursive(dir: PathBuf) -> Result<()> {
-    if !dir.is_dir() {
-        bail!("the 'cr' command requires a directory");
+    if checksums.is_empty() {
+        eprintln!("{} no files could be hashed successfully", util::error_tag());
+        return;
     }
 
-    let dir_name = dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("checksums");
-
-    let checksums_file_name = format!("{}.sha256", dir_name);
-    let checksums_path = dir.join(&checksums_file_name);
-
-    if !checksums_path.exists() {
-        bail!("file '{}' is missing", checksums_file_name);
-    }
-
-    let sha256_content = read_sha256_file(&checksums_path, &checksums_file_name)
-        .with_context(|| format!("Failed to read checksums file '{}'", checksums_file_name))?;
-
-    let expected_files = parse_sha256_file(&sha256_content);
-
-    let loading_message = if dir_name == "checksums" {
-        "processing directory".to_string()
+    if errors.is_empty() {
+        println!("successfully hashed all {} files", checksums.len());
     } else {
-        format!("processing directory '{}'", dir_name)
+        println!("hashing complete: {} succeeded, {} failed", checksums.len(), errors.len());
+        for (file_path, e) in &errors {
+            let relative_path = file_path.strip_prefix(dir).unwrap_or(file_path);
+            let error_msg = e.to_string().to_lowercase();
+            eprintln!("     [ ! ] : {} - {}", relative_path.display(), error_msg);
+        }
+    }
+
+    let output_filename = match dir.file_name() {
+        Some(name) => format!("{}.sha256", name.to_string_lossy()),
+        None => "checksums.sha256".to_string(),
     };
 
-    let files: Vec<_> = WalkDir::new(&dir)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry.path().is_file()
-                && entry.file_name().to_string_lossy().to_ascii_lowercase()
-                    != checksums_file_name.to_ascii_lowercase()
-        })
-        .collect();
+    if let Err(e) = util::write_checksums_to_file(dir, &checksums, &output_filename) {
+        eprintln!("{} failed writing checksums file to {:?}: {}", util::error_tag(), dir, e);
+    }
+}
 
-    let total_bytes: u64 = files
-        .iter()
-        .filter_map(|entry| entry.metadata().ok().map(|m| m.len()))
-        .sum();
+pub fn handle_cr_command(dir: &PathBuf) {
+    if !dir.exists() {
+        eprintln!("{} directory {:?} not found", util::error_tag(), dir);
+        return;
+    }
 
-    let pb = start_spinner(&loading_message);
-    pb.set_length(total_bytes);
+    if !dir.is_dir() {
+        eprintln!("{} {:?} is not a directory", util::error_tag(), dir);
+        return;
+    }
 
-    let processed_bytes = Arc::new(Mutex::new(0u64));
-    let skipped_files = Arc::new(Mutex::new(Vec::new()));
+    let checksums_file = match dir.file_name() {
+        Some(name) => {
+            let dir_name_file = dir.join(format!("{}.sha256", name.to_string_lossy()));
+            if dir_name_file.exists() {
+                dir_name_file
+            } else {
+                dir.join("checksums.sha256")
+            }
+        }
+        None => dir.join("checksums.sha256"),
+    };
 
-    let mut actual_files_map = HashMap::new();
+    if !checksums_file.exists() {
+        eprintln!("{} checksum file not found in {:?}", util::error_tag(), dir);
+        return;
+    }
 
-    let results: Vec<(FileStatus, String, String)> = files
+    let expected_checksums = match util::parse_checksums_file(&checksums_file) {
+        Ok(checksums) => {
+            checksums
+        }
+        Err(e) => {
+            eprintln!("{} failed reading checksums file {:?}: {}", util::error_tag(), checksums_file, e);
+            return;
+        }
+    };
+
+    if expected_checksums.is_empty() {
+        println!("no checksums found in file");
+        return;
+    }
+
+    let pb_progress = util::start_progress_bar_files(&format!("verifying checksums using {} threads...", rayon::current_num_threads()), expected_checksums.len() as u64);
+
+    let verification_results: Vec<_> = expected_checksums
         .par_iter()
-        .filter_map(|entry| {
-            let path = entry.path();
-            let relative_path = strip_prefix(path, &dir);
-            let relative_path_str = relative_path.to_string_lossy().to_string();
-            let normalized_path = normalize_path(&relative_path_str);
-            let file_size = entry.metadata().ok().map(|m| m.len()).unwrap_or(0);
+        .map(|(file_path, expected_checksum)| {
+            let full_path = if file_path.is_relative() {
+                dir.join(file_path)
+            } else {
+                file_path.clone()
+            };
 
-            match compute_sha_for_file(&path.to_path_buf(), &checksums_file_name, false) {
-                Ok(file_hash) => {
-                    let new_position = {
-                        let mut processed = processed_bytes.lock().unwrap();
-                        *processed += file_size;
-                        *processed
-                    };
-                    pb.set_position(new_position);
-
-                    let file_hash = file_hash.to_lowercase();
-                    let status = if let Some(expected_hash) = expected_files.get(&normalized_path) {
-                        if &file_hash == expected_hash {
-                            FileStatus::Ok
+            let result = if !full_path.exists() {
+                (file_path.clone(), false, "file not found".to_string())
+            } else {
+                match crate::hasher::hash_file_sha256(&full_path) {
+                    Ok(actual_checksum) => {
+                        if actual_checksum == *expected_checksum {
+                            (file_path.clone(), true, "[ ok ]".to_string())
                         } else {
-                            FileStatus::Mismatched
+                            (file_path.clone(), false, "[ ! ]".to_string())
                         }
-                    } else {
-                        FileStatus::ExtraFile
-                    };
-                    Some((status, normalized_path, relative_path_str))
-                }
-                Err(_) => {
-                    if let Ok(mut skipped) = skipped_files.lock() {
-                        skipped.push(relative_path_str);
                     }
-
-                    let new_position = {
-                        let mut processed = processed_bytes.lock().unwrap();
-                        *processed += file_size;
-                        *processed
-                    };
-                    pb.set_position(new_position);
-
-                    None
+                    Err(e) => {
+                        (file_path.clone(), false, format!("checksum error: {}", e))
+                    }
                 }
-            }
+            };
+
+            pb_progress.inc(1);
+            result
         })
         .collect();
 
-    pb.finish_and_clear();
+    util::finish_progress_bar(&pb_progress, "");
 
-    let mut ok_files = Vec::new();
-    let mut mismatched_files = Vec::new();
-    let mut extra_files = Vec::new();
-    let mut actual_file_paths = HashSet::with_capacity(results.len());
+    let mut verified_count = 0;
+    let mut failed_count = 0;
 
-    for (status, normalized_path, relative_path) in results {
-        actual_file_paths.insert(normalized_path.clone());
-        actual_files_map.insert(normalized_path, relative_path.clone());
-
-        match status {
-            FileStatus::Ok => ok_files.push(relative_path),
-            FileStatus::Mismatched => mismatched_files.push(relative_path),
-            FileStatus::ExtraFile => extra_files.push(relative_path),
-        }
-    }
-
-    let missing_files_from_checksum: Vec<_> = expected_files
-        .keys()
-        .filter(|path| !actual_file_paths.contains(*path))
-        .cloned()
-        .collect();
-
-    let count_ok = ok_files.len();
-    let count_mismatched = mismatched_files.len();
-    let count_missing = missing_files_from_checksum.len();
-    let total_checked = count_ok + count_mismatched;
-    let problem_count = count_mismatched + count_missing;
-
-    if count_mismatched == 0 && count_missing == 0 && extra_files.is_empty() {
-        println!(
-            "{} All checksums passed!",
-            "Status:".truecolor(119, 193, 178)
-        );
-    } else {
-        if !mismatched_files.is_empty() {
-            println!("files with MISMATCHED hashes:");
-            for file in &mismatched_files {
-                println!("  MISMATCHED: {}", file);
-            }
-        }
-
-        if !missing_files_from_checksum.is_empty() {
-            println!("files MISSING from directory (listed in checksums file):");
-            for file in &missing_files_from_checksum {
-                println!("  MISSING: {}", file);
-            }
-        }
-
-        if !extra_files.is_empty() {
-            println!("EXTRA files in directory (not in checksums file):");
-            for file in &extra_files {
-                println!("  EXTRA: {}", file);
-            }
-        }
-
-        if let Ok(skipped) = skipped_files.lock() {
-            if !skipped.is_empty() {
-                println!(
-                    "{} skipped {} files due to checksum computation failures:",
-                    "Warning:".truecolor(173, 127, 172),
-                    skipped.len()
-                );
-                for file in skipped.iter() {
-                    println!("  FAILED: {}", file);
-                }
-            }
-        }
-
-        let status_color = if count_ok > problem_count {
-            "Status:".truecolor(119, 193, 178)
+    for (_file_path, is_valid, _status) in &verification_results {
+        if *is_valid {
+            verified_count += 1;
         } else {
-            "Status:".truecolor(173, 127, 172)
-        };
-
-        println!(
-            "{} {} out of {} checksums passed ({} mismatched, {} missing)",
-            status_color,
-            count_ok,
-            total_checked + count_missing,
-            count_mismatched,
-            count_missing
-        );
+            failed_count += 1;
+        }
     }
 
-    Ok(())
-}
-
-#[derive(PartialEq, Eq, Clone, Copy)]
-enum FileStatus {
-    Ok,
-    Mismatched,
-    ExtraFile,
-}
-
-fn parse_sha256_file(content: &str) -> HashMap<String, String> {
-    let mut result = HashMap::with_capacity(content.lines().count());
-
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-
-        if let Some((hash, filepath)) = line.split_once(' ') {
-            let hash = hash.to_lowercase();
-            let mut filepath = filepath.trim();
-
-            if filepath.starts_with('*') {
-                filepath = &filepath[1..];
+    if failed_count == 0 {
+        println!("all {} checksums verified successfully", verified_count);
+    } else {
+        println!("verification complete: {} verified, {} failed", verified_count, failed_count);
+        for (file_path, is_valid, status) in &verification_results {
+            if !*is_valid {
+                eprintln!("     [ ! ] : {} - {}", file_path.display(), status);
             }
-
-            let normalized_path = normalize_path(filepath);
-            result.insert(normalized_path, hash);
         }
     }
-
-    result
-}
-
-fn normalize_path(path: &str) -> String {
-    path.replace('\\', "/").to_ascii_lowercase()
 }

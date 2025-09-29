@@ -1,57 +1,36 @@
-use anyhow::{Context, Result};
-use indicatif::ProgressBar;
-use sha2::{Digest, Sha256};
+use sha2::{Sha256, Digest};
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::path::PathBuf;
-use crate::utils::start_spinner;
+use anyhow::Result;
+use indicatif::ProgressBar;
 
-pub fn compute_sha_for_file(
-    filepath: &PathBuf,
-    filename: &str,
-    not_recursive: bool,
-) -> Result<String> {
-    let file = File::open(filepath)
-        .with_context(|| format!("Failed to open file '{}'", filename))?;
-    
-    let file_size = file.metadata()
-        .with_context(|| format!("Failed to get metadata for '{}'", filename))?
-        .len();
+pub fn hash_file_sha256(path: &std::path::Path) -> Result<String> {
+    hash_file_sha256_with_progress(path, None)
+}
 
-    let pb_opt: Option<ProgressBar> = if not_recursive {
-        let loading_message = format!("processing file '{}'", filename);
-        let pb = start_spinner(&loading_message);
-        pb.set_length(file_size);
-        Some(pb)
-    } else {
-        None
-    };
-
-    let mut reader = BufReader::new(&file);
+pub fn hash_file_sha256_with_progress(path: &std::path::Path, pb: Option<&ProgressBar>) -> Result<String> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
-    let mut buffer = [0; 65536];
-    let mut total_bytes_read = 0;
 
-    loop {
-        let bytes_read = reader.read(&mut buffer)
-            .with_context(|| format!("Failed to read from file '{}'", filename))?;
+    let mut buffer = [0u8; 65536];
+    let mut bytes_read = 0u64;
+    
+    while let Ok(n) = reader.read(&mut buffer) {
+        if n == 0 { break; }
+        hasher.update(&buffer[..n]);
+        bytes_read += n as u64;
         
-        if bytes_read == 0 {
-            break;
-        }
-        
-        hasher.update(&buffer[..bytes_read]);
-        total_bytes_read += bytes_read as u64;
-        
-        if let Some(pb) = &pb_opt {
-            pb.set_position(total_bytes_read);
+        if let Some(progress_bar) = pb {
+            progress_bar.set_position(bytes_read);
         }
     }
 
-    if let Some(pb) = pb_opt {
-        pb.finish_and_clear();
-    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
 
-    let result = hasher.finalize();
-    Ok(format!("{:x}", result))
+pub fn hash_text_sha256(text: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
