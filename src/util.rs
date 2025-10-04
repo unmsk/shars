@@ -6,9 +6,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::hasher;
 
-pub fn error_tag() -> ColoredString {
-    "error:".truecolor(173, 127, 172)
-}
+pub fn error_tag() -> ColoredString {"error:".red().bold()}
+pub fn warning_tag() -> ColoredString {"[ ! ]".bold()}
 
 pub fn start_progress_bar(msg: &str, total: u64) -> ProgressBar {
     let pb = ProgressBar::new(total);
@@ -61,6 +60,21 @@ pub fn format_file_size(bytes: u64) -> String {
         format!("{} {}", bytes, UNITS[unit_index])
     } else {
         format!("{:.1} {}", size, UNITS[unit_index])
+    }
+}
+
+pub trait Shorten {
+    fn shorten(&self) -> String;
+}
+
+impl Shorten for str {
+    fn shorten(&self) -> String {
+        if self.chars().count() > 12 {
+            let shortened: String = self.chars().take(9).collect();
+            format!("{}...", shortened)
+        } else {
+            self.to_string()
+        }
     }
 }
 
@@ -170,7 +184,7 @@ pub fn parse_checksums_file(checksums_path: &Path) -> Result<Vec<(PathBuf, Strin
             continue;
         }
         
-        if let Some(space_pos) = line.find("  ") {
+        if let Some(space_pos) = line.find(" ") {
             let checksum = &line[..space_pos];
             let file_path = &line[space_pos + 2..];
             

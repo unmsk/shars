@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::util;
+use crate::util::Shorten;
 
 pub fn handle_c_command(input1: &str, input2: &str) {
     let path1 = PathBuf::from(input1);
@@ -29,7 +30,7 @@ pub fn handle_c_command(input1: &str, input2: &str) {
         let match_msg = if sha256_checksum == other_checksum {
             format!("[ ok ] : hash found in {}", input1)
         } else {
-            format!("[ ! ] : matching hash not found in {}, using first checksum from file", input1)
+            format!("{} : matching hash not found in {}, using first checksum from file", util::warning_tag(), input1)
         };
 
         (sha256_checksum, other_checksum, match_msg)
@@ -53,7 +54,7 @@ pub fn handle_c_command(input1: &str, input2: &str) {
         let match_msg = if sha256_checksum == other_checksum {
             format!("[ ok ] : hash found in {}", input2)
         } else {
-            format!("[ ! ] : matching hash not found in {}, using first checksum from file", input2)
+            format!("{} : matching hash not found in {}, using first checksum from file", util::warning_tag(), input2)
         };
 
         (other_checksum, sha256_checksum, match_msg)
@@ -77,7 +78,7 @@ pub fn handle_c_command(input1: &str, input2: &str) {
         let match_msg = if checksum1 == checksum2 {
             "[ ok ] : checksums match".to_string()
         } else {
-            "[ ! ] : checksums differ".to_string()
+            format!("{} : checksums differ", util::warning_tag())
         };
 
         (checksum1, checksum2, match_msg)
@@ -87,21 +88,32 @@ pub fn handle_c_command(input1: &str, input2: &str) {
         "USER-HASH-1".to_string()
     } else {
         path1.file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "<missing name>".to_string())
+            .map(|s| s.to_string_lossy().shorten())
+            .unwrap_or_else(|| "<invalid>".to_string())
     };
 
     let display2 = if is_hash2 {
         "USER-HASH-2".to_string()
     } else {
         path2.file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "<missing name>".to_string())
+            .map(|s| s.to_string_lossy().shorten())
+            .unwrap_or_else(|| "<invalid>".to_string())
     };
+
+    let max_width = display1.len().max(display2.len());
 
     if checksum1 == checksum2 {
         println!("{}", match_message);
     } else {
-        println!("{}\n     {} : {}\n     {} : {}", match_message, display1, checksum1, display2, checksum2);
+        println!(
+            "{}\n     {:width$} : {}\n     {:width$} : {}",
+            match_message,
+            display1,
+            checksum1,
+            display2,
+            checksum2,
+            width = max_width
+        );
     }
+
 }

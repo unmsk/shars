@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand, crate_name, crate_version, crate_description, crate_authors};
 use std::path::PathBuf;
 
+use crate::util::Shorten;
+
 mod hasher;
 mod util;
 mod recursive_ops;
@@ -72,7 +74,7 @@ fn main() {
             let pb = util::start_progress_bar(&format!("computing SHA-256 for {:?} ({})", file, file_size_str), file_size);
             match crate::hasher::hash_file_sha256_with_progress(&file, Some(&pb)) {
                 Ok(hash) => {
-                    util::finish_progress_bar(&pb, &format!("{} : {}", file.file_name().and_then(|s| s.to_str()).unwrap_or("<invalid or missing name>"), hash));
+                    util::finish_progress_bar(&pb, &format!("{} : {}", file.file_name().and_then(|s| s.to_str()).unwrap_or("<invalid>").shorten(), hash));
                 }
                 Err(e) => {
                     util::finish_progress_bar(&pb, &format!("{} failed to hash file {:?}: {}", util::error_tag(), file, e));

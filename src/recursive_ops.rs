@@ -64,14 +64,17 @@ pub fn handle_wr_command(dir: &PathBuf) {
         return;
     }
 
-    if errors.is_empty() {
-        println!("successfully hashed all {} files", checksums.len());
+    let succeeded_count = checksums.len();
+    let failed_count = errors.len();
+
+    if failed_count == 0 {
+        println!("successfully hashed all {} files", succeeded_count);
     } else {
-        println!("hashing complete: {} succeeded, {} failed", checksums.len(), errors.len());
+        println!("hashing complete: {} succeeded, {} failed", succeeded_count, failed_count);
         for (file_path, e) in &errors {
             let relative_path = file_path.strip_prefix(dir).unwrap_or(file_path);
             let error_msg = e.to_string().to_lowercase();
-            eprintln!("     [ ! ] : {} - {}", relative_path.display(), error_msg);
+            eprintln!("     {} : {} - {}", util::warning_tag(), relative_path.display(), error_msg);
         }
     }
 
@@ -147,11 +150,11 @@ pub fn handle_cr_command(dir: &PathBuf) {
                         if actual_checksum == *expected_checksum {
                             (file_path.clone(), true, "[ ok ]".to_string())
                         } else {
-                            (file_path.clone(), false, "[ ! ]".to_string())
+                            (file_path.clone(), false, util::warning_tag().to_string())
                         }
                     }
                     Err(e) => {
-                        (file_path.clone(), false, format!("checksum error: {}", e))
+                        (file_path.clone(), false, format!("checksum error: {}", e).to_lowercase())
                     }
                 }
             };
@@ -180,7 +183,7 @@ pub fn handle_cr_command(dir: &PathBuf) {
         println!("verification complete: {} verified, {} failed", verified_count, failed_count);
         for (file_path, is_valid, status) in &verification_results {
             if !*is_valid {
-                eprintln!("     [ ! ] : {} - {}", file_path.display(), status);
+                eprintln!("     {} : {} - {}", util::warning_tag(), file_path.display(), status);
             }
         }
     }
