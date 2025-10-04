@@ -1,12 +1,13 @@
-use clap::{Parser, Subcommand, crate_name, crate_version, crate_description, crate_authors};
+use anyhow::{Context, Result};
+use clap::{crate_authors, crate_description, crate_name, crate_version, Parser, Subcommand};
 use std::path::PathBuf;
 
 use crate::util::Shorten;
 
-mod hasher;
-mod util;
-mod recursive_ops;
 mod compare;
+mod hasher;
+mod recursive_ops;
+mod util;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -51,72 +52,63 @@ enum Commands {
     },
 }
 
-fn main() {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-
-        Commands::S { file } => {
-            if !file.exists() {
-                eprintln!("{} file {:?} not found", util::error_tag(), file);
-                return;
-            }
-
-            let file_size = match std::fs::metadata(&file) {
-                Ok(metadata) => metadata.len(),
-                Err(e) => {
-                    eprintln!("{} failed retrieving file size: {}", util::error_tag(), e);
-                    return;
-                }
-            };
-
-            let file_size_str = util::format_file_size(file_size);
-            let pb = util::start_progress_bar(&format!("computing SHA-256 for {:?} ({})", file, file_size_str), file_size);
-            match crate::hasher::hash_file_sha256_with_progress(&file, Some(&pb)) {
-                Ok(hash) => {
-                    util::finish_progress_bar(&pb, &format!("{} : {}", file.file_name().and_then(|s| s.to_str()).unwrap_or("<invalid>").shorten(), hash));
-                }
-                Err(e) => {
-                    util::finish_progress_bar(&pb, &format!("{} failed to hash file {:?}: {}", util::error_tag(), file, e));
-                }
-            }
-        }
-
-        Commands::C { input1, input2 } => {
-            compare::handle_c_command(&input1, &input2);
-        }
-
-        Commands::T { text } => {
-            let hash = crate::hasher::hash_text_sha256(&text);
-            println!("SHA-256: {}", hash);
-        }
-
+        Commands::S { file } => handle_single_file(file),
+        Commands::C { input1, input2 } => compare::handle_c_command(&input1, &input2),
+        Commands::T { text } => handle_text(text),
         Commands::WR { dir } => {
-            let target_dir = match dir {
-                Some(d) => d,
-                None => match std::env::current_dir() {
-                    Ok(d) => d,
-                    Err(e) => {
-                        eprintln!("{} failed retrieving current directory: {}", util::error_tag(), e);
-                        return;
-                    }
-                }
-            };
-            recursive_ops::handle_wr_command(&target_dir);
+            let target_dir = resolve_directory(dir)?;
+            recursive_ops::handle_wr_command(&target_dir)
         }
-
         Commands::CR { dir } => {
-            let target_dir = match dir {
-                Some(d) => d,
-                None => match std::env::current_dir() {
-                    Ok(d) => d,
-                    Err(e) => {
-                        eprintln!("{} failed retrieving current directory: {}", util::error_tag(), e);
-                        return;
-                    }
-                }
-            };
-            recursive_ops::handle_cr_command(&target_dir);
+            let target_dir = resolve_directory(dir)?;
+            recursive_ops::handle_cr_command(&target_dir)
         }
+    }
+}
+
+fn handle_single_file(file: PathBuf) -> Result<()> {
+    anyhow::ensure!(file.exists(), "file {:?} not found", file);
+
+    let file_size = std::fs::metadata(&file)
+        .with_context(|| format!("failed retrieving file size for {:?}", file))?
+        .len();
+
+    let file_size_str = util::format_file_size(file_size);
+    let pb = util::start_progress_bar(
+        &format!("computing SHA-256 for {:?} ({})", file, file_size_str),
+        file_size,
+    );
+
+    match crate::hasher::hash_file_sha256_with_progress(&file, Some(&pb)) {
+        Ok(hash) => {
+            let filename = file
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("<invalid>")
+                .shorten();
+            util::finish_progress_bar(&pb, &format!("{} : {}", filename, hash));
+            Ok(())
+        }
+        Err(e) => {
+            util::finish_progress_bar(&pb, "");
+            Err(e).with_context(|| format!("failed to hash file {:?}", file))
+        }
+    }
+}
+
+fn handle_text(text: String) -> Result<()> {
+    let hash = crate::hasher::hash_text_sha256(&text);
+    println!("SHA-256: {}", hash);
+    Ok(())
+}
+
+fn resolve_directory(dir: Option<PathBuf>) -> Result<PathBuf> {
+    match dir {
+        Some(d) => Ok(d),
+        None => std::env::current_dir().context("failed retrieving current directory"),
     }
 }

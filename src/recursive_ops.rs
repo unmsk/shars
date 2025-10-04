@@ -1,42 +1,35 @@
-use std::path::PathBuf;
+use anyhow::{bail, Context, Result};
 use rayon::prelude::*;
+use std::path::PathBuf;
 
 use crate::hasher;
 use crate::util;
 
-pub fn handle_wr_command(dir: &PathBuf) {
-    if !dir.exists() {
-        eprintln!("{} directory {:?} not found", util::error_tag(), dir);
-        return;
-    }
-
-    if !dir.is_dir() {
-        eprintln!("{} {:?} is not a directory", util::error_tag(), dir);
-        return;
-    }
+pub fn handle_wr_command(dir: &PathBuf) -> Result<()> {
+    anyhow::ensure!(dir.exists(), "directory {:?} not found", dir);
+    anyhow::ensure!(dir.is_dir(), "{:?} is not a directory", dir);
 
     let mut ignore_files = vec!["checksums.txt".to_string(), "checksums.sha256".to_string()];
     if let Some(name) = dir.file_name() {
         ignore_files.push(format!("{}.sha256", name.to_string_lossy()));
     }
     let ignore_refs: Vec<&str> = ignore_files.iter().map(|s| s.as_str()).collect();
-    let files = match util::collect_all_files(dir, Some(&ignore_refs)) {
-        Ok(files) => {
-            files
-        }
-        Err(e) => {
-            eprintln!("{} scanning directory {:?}: {}", util::error_tag(), dir, e);
-            return;
-        }
-    };
+
+    let files = util::collect_all_files(dir, Some(&ignore_refs))
+        .with_context(|| format!("scanning directory {:?}", dir))?;
 
     if files.is_empty() {
-
         println!("no files found in directory");
-        return;
+        return Ok(());
     }
 
-    let pb_progress = util::start_progress_bar_files(&format!("computing checksums using {} threads...", rayon::current_num_threads()), files.len() as u64);
+    let pb_progress = util::start_progress_bar_files(
+        &format!(
+            "computing checksums using {} threads...",
+            rayon::current_num_threads()
+        ),
+        files.len() as u64,
+    );
 
     let results: Vec<_> = files
         .par_iter()
@@ -60,8 +53,7 @@ pub fn handle_wr_command(dir: &PathBuf) {
     }
 
     if checksums.is_empty() {
-        eprintln!("{} no files could be hashed successfully", util::error_tag());
-        return;
+        bail!("no files could be hashed successfully");
     }
 
     let succeeded_count = checksums.len();
@@ -70,11 +62,19 @@ pub fn handle_wr_command(dir: &PathBuf) {
     if failed_count == 0 {
         println!("successfully hashed all {} files", succeeded_count);
     } else {
-        println!("hashing complete: {} succeeded, {} failed", succeeded_count, failed_count);
+        println!(
+            "hashing complete: {} succeeded, {} failed",
+            succeeded_count, failed_count
+        );
         for (file_path, e) in &errors {
             let relative_path = file_path.strip_prefix(dir).unwrap_or(file_path);
             let error_msg = e.to_string().to_lowercase();
-            eprintln!("     {} : {} - {}", util::warning_tag(), relative_path.display(), error_msg);
+            eprintln!(
+                "     {} : {} - {}",
+                util::warning_tag(),
+                relative_path.display(),
+                error_msg
+            );
         }
     }
 
@@ -83,21 +83,15 @@ pub fn handle_wr_command(dir: &PathBuf) {
         None => "checksums.sha256".to_string(),
     };
 
-    if let Err(e) = util::write_checksums_to_file(dir, &checksums, &output_filename) {
-        eprintln!("{} failed writing checksums file to {:?}: {}", util::error_tag(), dir, e);
-    }
+    util::write_checksums_to_file(dir, &checksums, &output_filename)
+        .with_context(|| format!("failed writing checksums file to {:?}", dir))?;
+
+    Ok(())
 }
 
-pub fn handle_cr_command(dir: &PathBuf) {
-    if !dir.exists() {
-        eprintln!("{} directory {:?} not found", util::error_tag(), dir);
-        return;
-    }
-
-    if !dir.is_dir() {
-        eprintln!("{} {:?} is not a directory", util::error_tag(), dir);
-        return;
-    }
+pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
+    anyhow::ensure!(dir.exists(), "directory {:?} not found", dir);
+    anyhow::ensure!(dir.is_dir(), "{:?} is not a directory", dir);
 
     let checksums_file = match dir.file_name() {
         Some(name) => {
@@ -111,27 +105,27 @@ pub fn handle_cr_command(dir: &PathBuf) {
         None => dir.join("checksums.sha256"),
     };
 
-    if !checksums_file.exists() {
-        eprintln!("{} checksum file not found in {:?}", util::error_tag(), dir);
-        return;
-    }
+    anyhow::ensure!(
+        checksums_file.exists(),
+        "checksum file not found in {:?}",
+        dir
+    );
 
-    let expected_checksums = match util::parse_checksums_file(&checksums_file) {
-        Ok(checksums) => {
-            checksums
-        }
-        Err(e) => {
-            eprintln!("{} failed reading checksums file {:?}: {}", util::error_tag(), checksums_file, e);
-            return;
-        }
-    };
+    let expected_checksums = util::parse_checksums_file(&checksums_file)
+        .with_context(|| format!("failed reading checksums file {:?}", checksums_file))?;
 
     if expected_checksums.is_empty() {
         println!("no checksums found in file");
-        return;
+        return Ok(());
     }
 
-    let pb_progress = util::start_progress_bar_files(&format!("verifying checksums using {} threads...", rayon::current_num_threads()), expected_checksums.len() as u64);
+    let pb_progress = util::start_progress_bar_files(
+        &format!(
+            "verifying checksums using {} threads...",
+            rayon::current_num_threads()
+        ),
+        expected_checksums.len() as u64,
+    );
 
     let verification_results: Vec<_> = expected_checksums
         .par_iter()
@@ -153,9 +147,11 @@ pub fn handle_cr_command(dir: &PathBuf) {
                             (file_path.clone(), false, util::warning_tag().to_string())
                         }
                     }
-                    Err(e) => {
-                        (file_path.clone(), false, format!("checksum error: {}", e).to_lowercase())
-                    }
+                    Err(e) => (
+                        file_path.clone(),
+                        false,
+                        format!("checksum error: {}", e).to_lowercase(),
+                    ),
                 }
             };
 
@@ -180,11 +176,21 @@ pub fn handle_cr_command(dir: &PathBuf) {
     if failed_count == 0 {
         println!("all {} checksums verified successfully", verified_count);
     } else {
-        println!("verification complete: {} verified, {} failed", verified_count, failed_count);
+        println!(
+            "verification complete: {} verified, {} failed",
+            verified_count, failed_count
+        );
         for (file_path, is_valid, status) in &verification_results {
             if !*is_valid {
-                eprintln!("     {} : {} - {}", util::warning_tag(), file_path.display(), status);
+                eprintln!(
+                    "     {} : {} - {}",
+                    util::warning_tag(),
+                    file_path.display(),
+                    status
+                );
             }
         }
     }
+
+    Ok(())
 }
