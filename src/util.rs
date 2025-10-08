@@ -111,11 +111,16 @@ pub fn resolve_to_checksum_with_progress_bar(input: &str, label: &str) -> Result
     }
 }
 
+pub struct ChecksumEntry {
+    pub checksum: String,
+    pub file_path: Option<PathBuf>,
+}
+
 pub fn resolve_sha256_file_input(
     input: &str,
     other_checksum: &str,
     _label: &str,
-) -> Result<String> {
+) -> Result<(String, Vec<String>)> {
     let path = PathBuf::from(input);
 
     anyhow::ensure!(path.exists(), "SHA256 file '{}' does not exist", input);
@@ -125,20 +130,43 @@ pub fn resolve_sha256_file_input(
         input
     );
 
-    let checksums = parse_checksums_file(&path)?;
+    let entries = parse_checksums_file_with_optional_paths(&path)?;
     anyhow::ensure!(
-        !checksums.is_empty(),
+        !entries.is_empty(),
         "no valid checksums found in SHA256 file '{}'",
         input
     );
 
-    for (_, checksum) in &checksums {
-        if checksum == other_checksum {
-            return Ok(checksum.clone());
+    let mut warnings = Vec::new();
+
+    for entry in &entries {
+        if entry.checksum == other_checksum {
+            if entry.file_path.is_none() {
+                warnings.push(format!(
+                    "{} : missing filename",
+                    warning_tag()
+                ));
+            } else if let Some(ref file_path) = entry.file_path {
+                if !file_path.exists() {
+                    warnings.push(format!(
+                        "{} : invalid file path",
+                        warning_tag(),
+                    ));
+                }
+            }
+            return Ok((entry.checksum.clone(), warnings));
         }
     }
 
-    Ok(checksums[0].1.clone())
+    let first_entry = &entries[0];
+    if first_entry.file_path.is_none() {
+        warnings.push(format!(
+            "{} : no matching checksum found, using first entry (no filename in SHA256 file)",
+            warning_tag()
+        ));
+    }
+
+    Ok((first_entry.checksum.clone(), warnings))
 }
 
 pub fn collect_all_files(dir: &Path, ignore_files: Option<&[&str]>) -> Result<Vec<PathBuf>> {
@@ -192,10 +220,10 @@ pub fn write_checksums_to_file(
     Ok(output_path)
 }
 
-pub fn parse_checksums_file(checksums_path: &Path) -> Result<Vec<(PathBuf, String)>> {
+pub fn parse_checksums_file_with_optional_paths(checksums_path: &Path) -> Result<Vec<ChecksumEntry>> {
     let content = std::fs::read_to_string(checksums_path)
         .with_context(|| format!("failed reading {:?}", checksums_path))?;
-    let mut checksums = Vec::new();
+    let mut entries = Vec::new();
 
     for line in content.lines() {
         let line = line.trim();
@@ -203,15 +231,19 @@ pub fn parse_checksums_file(checksums_path: &Path) -> Result<Vec<(PathBuf, Strin
             continue;
         }
 
-        if let Some(space_pos) = line.find(char::is_whitespace) {
-            let checksum = &line[..space_pos];
-            let file_path = line[space_pos..].trim_start();
+        if line.len() >= 64 && is_hex_64(&line[..64]) {
+            let checksum = line[..64].to_string();
 
-            if checksum.len() == 64 && !file_path.is_empty() {
-                checksums.push((PathBuf::from(file_path), checksum.to_string()));
-            }
+            let rest = line[64..].trim_start();
+            let file_path = if rest.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(rest))
+            };
+
+            entries.push(ChecksumEntry { checksum, file_path });
         }
     }
 
-    Ok(checksums)
+    Ok(entries)
 }

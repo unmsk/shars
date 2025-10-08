@@ -63,7 +63,7 @@ pub fn handle_wr_command(dir: &PathBuf) -> Result<()> {
         println!("successfully hashed all {} files", succeeded_count);
     } else {
         println!(
-            "hashing complete: {} succeeded, {} failed",
+            "status: {} succeeded, {} failed",
             succeeded_count, failed_count
         );
         for (file_path, e) in &errors {
@@ -89,6 +89,15 @@ pub fn handle_wr_command(dir: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+enum VerificationResult {
+    Success,
+    ChecksumMismatch,
+    FileNotFound,
+    NoFilenameInChecksum,
+    FilenameIncorrect { expected: PathBuf, found_checksum: bool },
+    ChecksumError(String),
+}
+
 pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
     anyhow::ensure!(dir.exists(), "directory {:?} not found", dir);
     anyhow::ensure!(dir.is_dir(), "{:?} is not a directory", dir);
@@ -111,10 +120,10 @@ pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
         dir
     );
 
-    let expected_checksums = util::parse_checksums_file(&checksums_file)
+    let entries = util::parse_checksums_file_with_optional_paths(&checksums_file)
         .with_context(|| format!("failed reading checksums file {:?}", checksums_file))?;
 
-    if expected_checksums.is_empty() {
+    if entries.is_empty() {
         println!("no checksums found in file");
         return Ok(());
     }
@@ -124,34 +133,65 @@ pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
             "verifying checksums using {} threads...",
             rayon::current_num_threads()
         ),
-        expected_checksums.len() as u64,
+        entries.len() as u64,
     );
 
-    let verification_results: Vec<_> = expected_checksums
+    let verification_results: Vec<_> = entries
         .par_iter()
-        .map(|(file_path, expected_checksum)| {
-            let full_path = if file_path.is_relative() {
-                dir.join(file_path)
-            } else {
-                file_path.clone()
-            };
+        .map(|entry| {
+            let result = match &entry.file_path {
+                None => {
+                    (entry.checksum.clone(), None, VerificationResult::NoFilenameInChecksum)
+                }
+                Some(file_path) => {
+                    let full_path = if file_path.is_relative() {
+                        dir.join(file_path)
+                    } else {
+                        file_path.clone()
+                    };
 
-            let result = if !full_path.exists() {
-                (file_path.clone(), false, "file not found".to_string())
-            } else {
-                match crate::hasher::hash_file_sha256(&full_path) {
-                    Ok(actual_checksum) => {
-                        if actual_checksum == *expected_checksum {
-                            (file_path.clone(), true, "[ ok ]".to_string())
+                    if !full_path.exists() {
+                        let found = try_find_file_by_checksum(dir, &entry.checksum);
+                        if let Some(_found_path) = found {
+                            (
+                                entry.checksum.clone(),
+                                Some(file_path.clone()),
+                                VerificationResult::FilenameIncorrect {
+                                    expected: file_path.clone(),
+                                    found_checksum: true,
+                                },
+                            )
                         } else {
-                            (file_path.clone(), false, util::warning_tag().to_string())
+                            (
+                                entry.checksum.clone(),
+                                Some(file_path.clone()),
+                                VerificationResult::FileNotFound,
+                            )
+                        }
+                    } else {
+                        match crate::hasher::hash_file_sha256(&full_path) {
+                            Ok(actual_checksum) => {
+                                if actual_checksum == entry.checksum {
+                                    (
+                                        entry.checksum.clone(),
+                                        Some(file_path.clone()),
+                                        VerificationResult::Success,
+                                    )
+                                } else {
+                                    (
+                                        entry.checksum.clone(),
+                                        Some(file_path.clone()),
+                                        VerificationResult::ChecksumMismatch,
+                                    )
+                                }
+                            }
+                            Err(e) => (
+                                entry.checksum.clone(),
+                                Some(file_path.clone()),
+                                VerificationResult::ChecksumError(e.to_string().to_lowercase()),
+                            ),
                         }
                     }
-                    Err(e) => (
-                        file_path.clone(),
-                        false,
-                        format!("checksum error: {}", e).to_lowercase(),
-                    ),
                 }
             };
 
@@ -164,33 +204,107 @@ pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
 
     let mut verified_count = 0;
     let mut failed_count = 0;
+    let mut warning_count = 0;
 
-    for (_file_path, is_valid, _status) in &verification_results {
-        if *is_valid {
-            verified_count += 1;
-        } else {
-            failed_count += 1;
+    for (_checksum, _file_path, result) in &verification_results {
+        match result {
+            VerificationResult::Success => verified_count += 1,
+            VerificationResult::NoFilenameInChecksum => warning_count += 1,
+            VerificationResult::FilenameIncorrect { found_checksum: true, .. } => warning_count += 1,
+            _ => failed_count += 1,
         }
     }
 
-    if failed_count == 0 {
+    if failed_count == 0 && warning_count == 0 {
         println!("all {} checksums verified successfully", verified_count);
+    } else if failed_count == 0 {
+        println!(
+            "status: {} verified, {} warnings",
+            verified_count, warning_count
+        );
     } else {
         println!(
-            "verification complete: {} verified, {} failed",
-            verified_count, failed_count
+            "status: {} verified, {} failed, {} warnings",
+            verified_count, failed_count, warning_count
         );
-        for (file_path, is_valid, status) in &verification_results {
-            if !*is_valid {
-                eprintln!(
-                    "     {} : {} - {}",
-                    util::warning_tag(),
-                    file_path.display(),
-                    status
+    }
+
+    for (checksum, _file_path, result) in &verification_results {
+        match result {
+            VerificationResult::NoFilenameInChecksum => {
+                println!(
+                    "[ ok ] : checksum {} - no filename",
+                    &checksum
                 );
             }
+            VerificationResult::FilenameIncorrect { expected, found_checksum: true } => {
+                println!(
+                    "[ ok ] : {} - invalid path",
+                    expected.display()
+                );
+            }
+            _ => {}
+        }
+    }
+
+    for (_checksum, file_path, result) in &verification_results {
+        match result {
+            VerificationResult::FileNotFound => {
+                if let Some(path) = file_path {
+                    println!(
+                        "{} : {} - file not found",
+                        util::warning_tag(),
+                        path.display()
+                    );
+                }
+            }
+            VerificationResult::ChecksumMismatch => {
+                if let Some(path) = file_path {
+                    println!(
+                        "{} : {} - checksum mismatch",
+                        util::warning_tag(),
+                        path.display()
+                    );
+                }
+            }
+            VerificationResult::ChecksumError(err) => {
+                if let Some(path) = file_path {
+                    println!(
+                        "{} : {} - {}",
+                        util::warning_tag(),
+                        path.display(),
+                        err
+                    );
+                }
+            }
+            _ => {}
         }
     }
 
     Ok(())
+}
+
+fn try_find_file_by_checksum(dir: &PathBuf, target_checksum: &str) -> Option<PathBuf> {
+    
+    use walkdir::WalkDir;
+
+    for entry in WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let file_path = entry.path();
+
+        if file_path.extension().and_then(|s| s.to_str()) == Some("sha256") {
+            continue;
+        }
+
+        if let Ok(checksum) = hasher::hash_file_sha256(file_path) {
+            if checksum == target_checksum {
+                return Some(file_path.to_path_buf());
+            }
+        }
+    }
+
+    None
 }

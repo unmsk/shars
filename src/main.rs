@@ -83,7 +83,7 @@ fn handle_single_file(file: PathBuf) -> Result<()> {
         file_size,
     );
 
-    match crate::hasher::hash_file_sha256_with_progress(&file, Some(&pb)) {
+    match hasher::hash_file_sha256_with_progress(&file, Some(&pb)) {
         Ok(hash) => {
             let filename = file
                 .file_name()
@@ -101,7 +101,7 @@ fn handle_single_file(file: PathBuf) -> Result<()> {
 }
 
 fn handle_text(text: String) -> Result<()> {
-    let hash = crate::hasher::hash_text_sha256(&text);
+    let hash = hasher::hash_text_sha256(&text);
     println!("SHA-256: {}", hash);
     Ok(())
 }
