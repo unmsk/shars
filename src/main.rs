@@ -100,7 +100,7 @@ fn handle_single_file(file: PathBuf) -> Result<()> {
         .and_then(|s| s.to_str())
         .unwrap_or("<invalid>")
         .shorten();
-    util::finish_progress_bar(&pb, &format!("{} : {}", filename, hash));
+    util::finish_progress_bar(&pb, &format!("{} : {}", hash, filename));
     Ok(())
 }
 
