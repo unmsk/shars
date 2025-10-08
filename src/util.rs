@@ -203,9 +203,9 @@ pub fn parse_checksums_file(checksums_path: &Path) -> Result<Vec<(PathBuf, Strin
             continue;
         }
 
-        if let Some(space_pos) = line.find(" ") {
+        if let Some(space_pos) = line.find(char::is_whitespace) {
             let checksum = &line[..space_pos];
-            let file_path = &line[space_pos + 2..];
+            let file_path = line[space_pos..].trim_start();
 
             if checksum.len() == 64 && !file_path.is_empty() {
                 checksums.push((PathBuf::from(file_path), checksum.to_string()));
