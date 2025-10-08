@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use clap::{crate_authors, crate_description, crate_name, crate_version, Parser, Subcommand};
+use colored::*;
 use std::path::PathBuf;
+use std::process;
 
 use crate::util::Shorten;
 
@@ -52,7 +54,14 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("{} {:#}", "error:".red().bold(), e);
+        process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -83,21 +92,16 @@ fn handle_single_file(file: PathBuf) -> Result<()> {
         file_size,
     );
 
-    match hasher::hash_file_sha256_with_progress(&file, Some(&pb)) {
-        Ok(hash) => {
-            let filename = file
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("<invalid>")
-                .shorten();
-            util::finish_progress_bar(&pb, &format!("{} : {}", filename, hash));
-            Ok(())
-        }
-        Err(e) => {
-            util::finish_progress_bar(&pb, "");
-            Err(e).with_context(|| format!("failed to hash file {:?}", file))
-        }
-    }
+    let hash = hasher::hash_file_sha256_with_progress(&file, Some(&pb))
+        .with_context(|| format!("failed to hash file {:?}", file))?;
+
+    let filename = file
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("<invalid>")
+        .shorten();
+    util::finish_progress_bar(&pb, &format!("{} : {}", filename, hash));
+    Ok(())
 }
 
 fn handle_text(text: String) -> Result<()> {

@@ -70,7 +70,7 @@ pub fn handle_wr_command(dir: &PathBuf) -> Result<()> {
             let relative_path = file_path.strip_prefix(dir).unwrap_or(file_path);
             let error_msg = e.to_string().to_lowercase();
             eprintln!(
-                "     {} : {} - {}",
+                "{} : {} - {}",
                 util::warning_tag(),
                 relative_path.display(),
                 error_msg
@@ -85,6 +85,10 @@ pub fn handle_wr_command(dir: &PathBuf) -> Result<()> {
 
     util::write_checksums_to_file(dir, &checksums, &output_filename)
         .with_context(|| format!("failed writing checksums file to {:?}", dir))?;
+
+    if failed_count > 1 {
+        bail!("checksum verification failed for {} file(s)", failed_count);
+    }
 
     Ok(())
 }
@@ -247,11 +251,12 @@ pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
         }
     }
 
+    let mut has_errors = false;
     for (_checksum, file_path, result) in &verification_results {
         match result {
             VerificationResult::FileNotFound => {
                 if let Some(path) = file_path {
-                    println!(
+                    eprintln!(
                         "{} : {} - file not found",
                         util::warning_tag(),
                         path.display()
@@ -260,7 +265,7 @@ pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
             }
             VerificationResult::ChecksumMismatch => {
                 if let Some(path) = file_path {
-                    println!(
+                    eprintln!(
                         "{} : {} - checksum mismatch",
                         util::warning_tag(),
                         path.display()
@@ -269,23 +274,27 @@ pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
             }
             VerificationResult::ChecksumError(err) => {
                 if let Some(path) = file_path {
-                    println!(
+                    eprintln!(
                         "{} : {} - {}",
                         util::warning_tag(),
                         path.display(),
                         err
                     );
+                    has_errors = true;
                 }
             }
             _ => {}
         }
     }
 
+    if has_errors && failed_count > 0 {
+        bail!("checksum verification failed for {} file(s)", failed_count);
+    }
+
     Ok(())
 }
 
 fn try_find_file_by_checksum(dir: &PathBuf, target_checksum: &str) -> Option<PathBuf> {
-    
     use walkdir::WalkDir;
 
     for entry in WalkDir::new(dir)
