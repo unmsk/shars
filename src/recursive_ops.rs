@@ -68,7 +68,7 @@ pub fn handle_wr_command(dir: &PathBuf) -> Result<()> {
         );
         for (file_path, e) in &errors {
             let relative_path = file_path.strip_prefix(dir).unwrap_or(file_path);
-            let error_msg = e.to_string().to_lowercase();
+            let error_msg = e.to_string();
             eprintln!(
                 "{} : {} - {}",
                 util::warning_tag(),
@@ -308,11 +308,10 @@ fn try_find_file_by_checksum(dir: &PathBuf, target_checksum: &str) -> Option<Pat
             continue;
         }
 
-        if let Ok(checksum) = hasher::hash_file_sha256(file_path) {
-            if checksum == target_checksum {
+        if let Ok(checksum) = hasher::hash_file_sha256(file_path)
+            && checksum == target_checksum {
                 return Some(file_path.to_path_buf());
             }
-        }
     }
 
     None

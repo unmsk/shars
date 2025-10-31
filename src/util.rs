@@ -64,21 +64,6 @@ pub fn format_file_size(bytes: u64) -> String {
     }
 }
 
-pub trait Shorten {
-    fn shorten(&self) -> String;
-}
-
-impl Shorten for str {
-    fn shorten(&self) -> String {
-        if self.chars().count() > 12 {
-            let shortened: String = self.chars().take(9).collect();
-            format!("{}...", shortened)
-        } else {
-            self.to_string()
-        }
-    }
-}
-
 pub fn is_hex_64(s: &str) -> bool {
     s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
@@ -146,14 +131,13 @@ pub fn resolve_sha256_file_input(
                     "{} : missing filename",
                     warning_tag()
                 ));
-            } else if let Some(ref file_path) = entry.file_path {
-                if !file_path.exists() {
+            } else if let Some(ref file_path) = entry.file_path
+                && !file_path.exists() {
                     warnings.push(format!(
                         "{} : invalid file path",
                         warning_tag(),
                     ));
                 }
-            }
             return Ok((entry.checksum.clone(), warnings));
         }
     }
@@ -179,15 +163,12 @@ pub fn collect_all_files(dir: &Path, ignore_files: Option<&[&str]>) -> Result<Ve
     {
         let file_path = entry.path();
 
-        if let Some(ignore_list) = ignore_files {
-            if let Some(file_name) = file_path.file_name() {
-                if let Some(name_str) = file_name.to_str() {
-                    if ignore_list.contains(&name_str) {
+        if let Some(ignore_list) = ignore_files
+            && let Some(file_name) = file_path.file_name()
+                && let Some(name_str) = file_name.to_str()
+                    && ignore_list.contains(&name_str) {
                         continue;
                     }
-                }
-            }
-        }
 
         files.push(file_path.to_path_buf());
     }

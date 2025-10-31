@@ -4,8 +4,6 @@ use colored::*;
 use std::path::PathBuf;
 use std::process;
 
-use crate::util::Shorten;
-
 mod compare;
 mod hasher;
 mod recursive_ops;
@@ -99,8 +97,7 @@ fn handle_single_file(file: PathBuf) -> Result<()> {
     let filename = file
         .file_name()
         .and_then(|s| s.to_str())
-        .unwrap_or("<invalid>")
-        .shorten();
+        .unwrap_or("<invalid>");
     util::finish_progress_bar(&pb, &format!("{} : {}", hash, filename));
     Ok(())
 }
