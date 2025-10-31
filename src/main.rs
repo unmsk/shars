@@ -26,9 +26,14 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    #[command(about = "creates a checksum of a given file")]
+    #[command(about = "computes file checksum")]
     S {
         file: PathBuf,
+    },
+
+    #[command(about = "computes string checksum")]
+    T {
+        text: String,
     },
 
     #[command(about = "compares two inputs (files or checksums)")]
@@ -39,17 +44,13 @@ enum Commands {
         input2: String,
     },
 
-    T {
-        text: String,
-    },
-
+    #[command(about = "computes checksums for a directory tree and writes them to a .sha file")]
     WR {
-        #[arg(help = "creates a SHA file containing the checksums of all files in a directory")]
         dir: Option<PathBuf>,
     },
 
+    #[command(about = "compares checksums from a .sha file against a directory tree")]
     CR {
-        #[arg(help = "verifies all files in a directory against a SHA file")]
         dir: Option<PathBuf>,
     },
 }
