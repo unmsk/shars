@@ -27,11 +27,7 @@ A command-line SHA256 utility
   - hash vs. file: `shars c <hash> file.txt`  
   - hash vs. hash: `shars c <hash1> <hash2>`
 
-- `w <filename>`: Generates and writes the checksum of a file to a `.sha256` file 
 
-  
-
-  Example: `shars w file.txt`
 
 ### Directory operations
 
