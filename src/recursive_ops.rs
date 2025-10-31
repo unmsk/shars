@@ -25,8 +25,7 @@ pub fn handle_wr_command(dir: &PathBuf) -> Result<()> {
 
     let pb_progress = util::start_progress_bar_files(
         &format!(
-            "computing checksums using {} threads...",
-            rayon::current_num_threads()
+            "computing checksums...",
         ),
         files.len() as u64,
     );
@@ -60,7 +59,7 @@ pub fn handle_wr_command(dir: &PathBuf) -> Result<()> {
     let failed_count = errors.len();
 
     if failed_count == 0 {
-        println!("successfully hashed all {} files", succeeded_count);
+        println!("successfully hashed {} files", succeeded_count);
     } else {
         println!(
             "status: {} succeeded, {} failed",
@@ -134,8 +133,7 @@ pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
 
     let pb_progress = util::start_progress_bar_files(
         &format!(
-            "verifying checksums using {} threads...",
-            rayon::current_num_threads()
+            "verifying checksums...",
         ),
         entries.len() as u64,
     );
