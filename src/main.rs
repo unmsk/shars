@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use clap::{crate_authors, crate_description, crate_name, crate_version, Parser, Subcommand};
+use clap::{Parser, Subcommand, crate_authors, crate_description, crate_name, crate_version};
 use colored::*;
 use std::path::PathBuf;
 use std::process;
@@ -25,14 +25,10 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     #[command(about = "computes file checksum")]
-    S {
-        file: PathBuf,
-    },
+    S { file: PathBuf },
 
     #[command(about = "computes string checksum")]
-    T {
-        text: String,
-    },
+    T { text: String },
 
     #[command(about = "compares two inputs (files or checksums)")]
     C {
@@ -45,11 +41,15 @@ enum Commands {
     #[command(about = "computes checksums for a directory tree and writes them to a .sha file")]
     WR {
         dir: Option<PathBuf>,
+        #[arg(short = 'F', long, help = "show per-file details")]
+        verbose: bool,
     },
 
     #[command(about = "compares checksums from a .sha file against a directory tree")]
     CR {
         dir: Option<PathBuf>,
+        #[arg(short = 'F', long, help = "show per-file details")]
+        verbose: bool,
     },
 }
 
@@ -67,13 +67,13 @@ fn run() -> Result<()> {
         Commands::S { file } => handle_single_file(file),
         Commands::C { input1, input2 } => compare::handle_c_command(&input1, &input2),
         Commands::T { text } => handle_text(text),
-        Commands::WR { dir } => {
+        Commands::WR { dir, verbose } => {
             let target_dir = resolve_directory(dir)?;
-            recursive_ops::handle_wr_command(&target_dir)
+            recursive_ops::handle_wr_command(&target_dir, verbose)
         }
-        Commands::CR { dir } => {
+        Commands::CR { dir, verbose } => {
             let target_dir = resolve_directory(dir)?;
-            recursive_ops::handle_cr_command(&target_dir)
+            recursive_ops::handle_cr_command(&target_dir, verbose)
         }
     }
 }

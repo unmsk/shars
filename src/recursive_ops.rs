@@ -1,11 +1,11 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use std::path::PathBuf;
 
 use crate::hasher;
 use crate::util;
 
-pub fn handle_wr_command(dir: &PathBuf) -> Result<()> {
+pub fn handle_wr_command(dir: &PathBuf, _verbose: bool) -> Result<()> {
     anyhow::ensure!(dir.exists(), "directory {:?} not found", dir);
     anyhow::ensure!(dir.is_dir(), "{:?} is not a directory", dir);
 
@@ -23,12 +23,8 @@ pub fn handle_wr_command(dir: &PathBuf) -> Result<()> {
         return Ok(());
     }
 
-    let pb_progress = util::start_progress_bar_files(
-        &format!(
-            "computing checksums...",
-        ),
-        files.len() as u64,
-    );
+    let pb_progress =
+        util::start_progress_bar_files(&format!("computing checksums...",), files.len() as u64);
 
     let results: Vec<_> = files
         .par_iter()
@@ -97,11 +93,14 @@ enum VerificationResult {
     ChecksumMismatch,
     FileNotFound,
     NoFilenameInChecksum,
-    FilenameIncorrect { expected: PathBuf, found_checksum: bool },
+    FilenameIncorrect {
+        expected: PathBuf,
+        found_checksum: bool,
+    },
     ChecksumError(String),
 }
 
-pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
+pub fn handle_cr_command(dir: &PathBuf, verbose: bool) -> Result<()> {
     anyhow::ensure!(dir.exists(), "directory {:?} not found", dir);
     anyhow::ensure!(dir.is_dir(), "{:?} is not a directory", dir);
 
@@ -131,20 +130,18 @@ pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
         return Ok(());
     }
 
-    let pb_progress = util::start_progress_bar_files(
-        &format!(
-            "verifying checksums...",
-        ),
-        entries.len() as u64,
-    );
+    let pb_progress =
+        util::start_progress_bar_files(&format!("verifying checksums...",), entries.len() as u64);
 
     let verification_results: Vec<_> = entries
         .par_iter()
         .map(|entry| {
             let result = match &entry.file_path {
-                None => {
-                    (entry.checksum.clone(), None, VerificationResult::NoFilenameInChecksum)
-                }
+                None => (
+                    entry.checksum.clone(),
+                    None,
+                    VerificationResult::NoFilenameInChecksum,
+                ),
                 Some(file_path) => {
                     let full_path = if file_path.is_relative() {
                         dir.join(file_path)
@@ -207,12 +204,40 @@ pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
     let mut verified_count = 0;
     let mut failed_count = 0;
     let mut warning_count = 0;
+    let mut invalid_path_count = 0;
+    let mut no_filename_count = 0;
+    let mut file_not_found_count = 0;
+    let mut checksum_mismatch_count = 0;
 
     for (_checksum, _file_path, result) in &verification_results {
         match result {
             VerificationResult::Success => verified_count += 1,
-            VerificationResult::NoFilenameInChecksum => warning_count += 1,
-            VerificationResult::FilenameIncorrect { found_checksum: true, .. } => warning_count += 1,
+
+            VerificationResult::NoFilenameInChecksum => {
+                warning_count += 1;
+                verified_count += 1;
+                no_filename_count += 1;
+            }
+
+            VerificationResult::FilenameIncorrect {
+                found_checksum: true,
+                ..
+            } => {
+                warning_count += 1;
+                verified_count += 1;
+                invalid_path_count += 1;
+            }
+
+            VerificationResult::FileNotFound => {
+                failed_count += 1;
+                file_not_found_count += 1;
+            }
+
+            VerificationResult::ChecksumMismatch => {
+                failed_count += 1;
+                checksum_mismatch_count += 1;
+            }
+
             _ => failed_count += 1,
         }
     }
@@ -231,62 +256,80 @@ pub fn handle_cr_command(dir: &PathBuf) -> Result<()> {
         );
     }
 
-    for (checksum, _file_path, result) in &verification_results {
-        match result {
-            VerificationResult::NoFilenameInChecksum => {
-                println!(
-                    "[ ok ] : checksum {} - no filename",
-                    &checksum
-                );
+    if verbose {
+        for (checksum, _file_path, result) in &verification_results {
+            match result {
+                VerificationResult::NoFilenameInChecksum => {
+                    println!("[ ok ] : checksum {} - no filename", &checksum);
+                }
+                VerificationResult::FilenameIncorrect {
+                    expected,
+                    found_checksum: true,
+                } => {
+                    println!("[ ok ] : {} - invalid path", expected.display());
+                }
+                _ => {}
             }
-            VerificationResult::FilenameIncorrect { expected, found_checksum: true } => {
-                println!(
-                    "[ ok ] : {} - invalid path",
-                    expected.display()
-                );
-            }
-            _ => {}
         }
-    }
 
-    let mut has_errors = false;
-    for (_checksum, file_path, result) in &verification_results {
-        match result {
-            VerificationResult::FileNotFound => {
-                if let Some(path) = file_path {
-                    eprintln!(
-                        "{} : {} - file not found",
-                        util::warning_tag(),
-                        path.display()
-                    );
+        let mut has_errors = false;
+        for (_checksum, file_path, result) in &verification_results {
+            match result {
+                VerificationResult::FileNotFound => {
+                    if let Some(path) = file_path {
+                        eprintln!(
+                            "{} : {} - file not found",
+                            util::warning_tag(),
+                            path.display()
+                        );
+                    }
                 }
-            }
-            VerificationResult::ChecksumMismatch => {
-                if let Some(path) = file_path {
-                    eprintln!(
-                        "{} : {} - checksum mismatch",
-                        util::warning_tag(),
-                        path.display()
-                    );
+                VerificationResult::ChecksumMismatch => {
+                    if let Some(path) = file_path {
+                        eprintln!(
+                            "{} : {} - checksum mismatch",
+                            util::warning_tag(),
+                            path.display()
+                        );
+                    }
                 }
-            }
-            VerificationResult::ChecksumError(err) => {
-                if let Some(path) = file_path {
-                    eprintln!(
-                        "{} : {} - {}",
-                        util::warning_tag(),
-                        path.display(),
-                        err
-                    );
-                    has_errors = true;
+                VerificationResult::ChecksumError(err) => {
+                    if let Some(path) = file_path {
+                        eprintln!("{} : {} - {}", util::warning_tag(), path.display(), err);
+                        has_errors = true;
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
-    }
 
-    if has_errors && failed_count > 0 {
-        bail!("checksum verification failed for {} file(s)", failed_count);
+        if has_errors && failed_count > 0 {
+            bail!("checksum verification failed for {} file(s)", failed_count);
+        }
+    } else {
+        if invalid_path_count > 0 {
+            println!("  invalid path(s): {}", invalid_path_count);
+        }
+        if no_filename_count > 0 {
+            println!(
+                "  missing filename(s) from checksum file: {}",
+                no_filename_count
+            );
+        }
+        if file_not_found_count > 0 {
+            eprintln!("  file(s) not found: {}", file_not_found_count);
+        }
+        if checksum_mismatch_count > 0 {
+            eprintln!("  checksum mismatch: {}", checksum_mismatch_count);
+        }
+
+        if failed_count > 0 || warning_count > 0 {
+            println!("\npass -F for full details");
+        }
+
+        if failed_count > 0 {
+            bail!("checksum verification failed for {} file(s)", failed_count);
+        }
     }
 
     Ok(())
@@ -307,9 +350,10 @@ fn try_find_file_by_checksum(dir: &PathBuf, target_checksum: &str) -> Option<Pat
         }
 
         if let Ok(checksum) = hasher::hash_file_sha256(file_path)
-            && checksum == target_checksum {
-                return Some(file_path.to_path_buf());
-            }
+            && checksum == target_checksum
+        {
+            return Some(file_path.to_path_buf());
+        }
     }
 
     None
